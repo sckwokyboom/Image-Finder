@@ -49,6 +49,25 @@ def save_embeddings_to_faiss(faiss_index, embeddings, faiss_path):
     faiss.write_index(faiss_index, faiss_path)
 
 
+def setup_logging(log_path):
+    logging.basicConfig(level=logging.INFO)
+    fmt_str = '%(filename)s[LINE:%(lineno)d]# %(levelname)-8s ' \
+              '[%(asctime)s]  %(message)s'
+    formatter = logging.Formatter(fmt_str)
+
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setFormatter(formatter)
+    one_peace_demo_logger.addHandler(stdout_handler)
+
+    log_dir = os.path.dirname(log_path)
+    if log_dir and not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+
+    file_handler = logging.FileHandler(log_path)
+    file_handler.setFormatter(formatter)
+    one_peace_demo_logger.addHandler(file_handler)
+
+
 def main():
     parser = ArgumentParser()
     parser.add_argument('--image-dir', dest='image_dir', type=str, required=True,
@@ -62,8 +81,12 @@ def main():
                         help='Path to pre-trained model weights.')
     parser.add_argument('--device', dest='torch_device', type=str, default='cuda', choices=['cuda', 'cpu'],
                         help='Device to use for inference.')
+    parser.add_argument('--log-path', dest='log_path', type=str, default=None,
+                        help='Path to log file.')
 
     args = parser.parse_args()
+
+    setup_logging(args.log_path)
 
     device = torch.device('cuda' if torch.cuda.is_available() and args.torch_device != 'cpu' else 'cpu')
 
@@ -103,7 +126,7 @@ def main():
 
     embeddings = []
     image_paths = []
-    faiss_index = faiss.IndexFlatL2(768)
+    faiss_index = faiss.IndexFlatL2(1536)
 
     for image_name in os.listdir(args.image_dir):
         image_path = os.path.join(args.image_dir, image_name)
@@ -119,14 +142,4 @@ def main():
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
-    fmt_str = '%(filename)s[LINE:%(lineno)d]# %(levelname)-8s ' \
-              '[%(asctime)s]  %(message)s'
-    formatter = logging.Formatter(fmt_str)
-    stdout_handler = logging.StreamHandler(sys.stdout)
-    stdout_handler.setFormatter(formatter)
-    one_peace_demo_logger.addHandler(stdout_handler)
-    file_handler = logging.FileHandler('one_peace_embeddings_vectorizing.log')
-    file_handler.setFormatter(formatter)
-    one_peace_demo_logger.addHandler(file_handler)
     main()
