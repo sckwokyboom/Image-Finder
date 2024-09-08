@@ -3,21 +3,26 @@ import logging
 import os
 import sys
 import torch
-import faiss
 import sqlite3
+import numpy as np
+from scipy.spatial.distance import cdist
 
 one_peace_demo_logger = logging.getLogger(__name__)
 
-
-def get_image_name_by_faiss_index(db_path, faiss_index):
+def get_image_embeddings(db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    cursor.execute('SELECT image_name FROM image_embeddings WHERE faiss_index=?', (faiss_index,))
-    result = cursor.fetchone()
+    cursor.execute('SELECT image_name, embedding FROM image_embeddings')
+    results = cursor.fetchall()
     conn.close()
-    if result:
-        return result[0]
-    return None
+
+    image_names = []
+    embeddings = []
+    for row in results:
+        image_names.append(row[0])
+        embeddings.append(np.frombuffer(row[1], dtype=np.float32))
+
+    return image_names, np.vstack(embeddings)
 
 def setup_logging(log_path):
     logging.basicConfig(level=logging.INFO)
@@ -37,11 +42,8 @@ def setup_logging(log_path):
     file_handler.setFormatter(formatter)
     one_peace_demo_logger.addHandler(file_handler)
 
-
 def main():
     parser = ArgumentParser()
-    parser.add_argument('--faiss-path', dest='faiss_path', type=str, required=True,
-                        help='Path to FAISS index file.')
     parser.add_argument('--db-path', dest='db_path', type=str, required=True,
                         help='Path to SQLite database with image embeddings.')
     parser.add_argument('--model-dir', dest='model_dir', type=str, required=True,
@@ -91,25 +93,19 @@ def main():
     with torch.no_grad():
         text_features = model.extract_text_features(text_tokens).cpu().numpy()
 
-    if not os.path.isfile(args.faiss_path):
-        err_msg = f'The FAISS index file "{args.faiss_path}" does not exist!'
-        one_peace_demo_logger.error(err_msg)
-        raise ValueError(err_msg)
+    os.chdir(current_workdir)
+    one_peace_demo_logger.info(f'Restored workdir: {os.getcwd()}')
 
-    faiss_index = faiss.read_index(args.faiss_path)
+    image_names, image_embeddings = get_image_embeddings(args.db_path)
 
-    distances, indices = faiss_index.search(text_features, args.top_k)
+    distances = cdist(text_features, image_embeddings, metric='cosine').flatten()
+    indices = np.argsort(distances)[:args.top_k]
 
     one_peace_demo_logger.info(f'Top {args.top_k} results for query "{args.query}":')
-    for i, idx in enumerate(indices[0]):
-        image_name = get_image_name_by_faiss_index(args.db_path, idx)
-        if image_name:
-            distance = distances[0][i]
-            similarity = 1 / (1 + distance)
-            one_peace_demo_logger.info(f'{i + 1}. Image: {image_name}, Similarity: {similarity:.4f}')
-        else:
-            one_peace_demo_logger.warning(f'No image found for FAISS index {idx}')
-
+    for i, idx in enumerate(indices):
+        image_name = image_names[idx]
+        similarity = 1 - distances[idx]
+        one_peace_demo_logger.info(f'{i + 1}. Image: {image_name}, Similarity: {similarity:.4f}')
 
 if __name__ == '__main__':
     main()

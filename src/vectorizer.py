@@ -6,7 +6,6 @@ import os
 import sys
 import torch
 import sqlite3
-import faiss
 import numpy as np
 
 one_peace_demo_logger = logging.getLogger(__name__)
@@ -26,7 +25,6 @@ def initialize_database(db_path):
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS image_embeddings (
             image_name TEXT PRIMARY KEY,
-            faiss_index INTEGER,
             embedding BLOB
         )
     ''')
@@ -34,20 +32,15 @@ def initialize_database(db_path):
     conn.close()
 
 
-def save_embeddings_to_sqlite(db_path, faiss_index, image_name, embedding):
+def save_embeddings_to_sqlite(db_path, image_name, embedding):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT OR REPLACE INTO image_embeddings (faiss_index, image_name, embedding)
-        VALUES (?, ?, ?)
-    ''', (faiss_index, image_name, embedding.tobytes()))
+        INSERT OR REPLACE INTO image_embeddings (image_name, embedding)
+        VALUES (?, ?)
+    ''', (image_name, embedding.tobytes()))
     conn.commit()
     conn.close()
-
-
-def save_embeddings_to_faiss(faiss_index, embeddings, faiss_path):
-    faiss_index.add(np.array(embeddings))
-    faiss.write_index(faiss_index, faiss_path)
 
 
 def setup_logging(log_path):
@@ -75,8 +68,6 @@ def main():
                         help='Directory containing images to vectorize.')
     parser.add_argument('--db-path', dest='db_path', type=str, required=True,
                         help='Path to SQLite database.')
-    parser.add_argument('--faiss-path', dest='faiss_path', type=str, required=True,
-                        help='Path to save FAISS index file.')
     parser.add_argument('--model-dir', dest='model_dir', type=str, required=True, help='Path to ONE-PEACE repository.')
     parser.add_argument('--model-name', dest='model_name', type=str, required=True,
                         help='Path to pre-trained model weights.')
@@ -125,21 +116,13 @@ def main():
 
     initialize_database(args.db_path)
 
-    embeddings = []
-    faiss_index = faiss.IndexFlatL2(1536)
     for image_name in os.listdir(args.image_dir):
         image_path = os.path.join(args.image_dir, image_name)
         if os.path.isfile(image_path):
             embedding = vectorize_image(image_path, model, transform, device)
-            embeddings.append(embedding.flatten())
+            save_embeddings_to_sqlite(args.db_path, image_name, embedding)
 
-            faiss_idx = faiss_index.ntotal
-            faiss_index.add(embedding)
-
-            save_embeddings_to_sqlite(args.db_path, faiss_idx, image_name, embedding)
-
-    save_embeddings_to_faiss(faiss_index, embeddings, faiss_path=args.faiss_path)
-    one_peace_demo_logger.info('Vectorization process has finished and data saved to SQLite and FAISS.')
+    one_peace_demo_logger.info('Vectorization process has finished and data saved to SQLite.')
 
 
 if __name__ == '__main__':
