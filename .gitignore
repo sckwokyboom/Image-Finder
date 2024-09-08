@@ -1,3 +1,5 @@
-/.env
+/src/front/.env
 /ONE-PEACE/
-/src/backend/images/
+/resources/images/
+/resources/images_metadata.db
+/models/one-peace.pt

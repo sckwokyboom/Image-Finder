@@ -1,8 +1,9 @@
+import sys
+
 import requests
 import asyncio
 import logging
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import ContentType
 from aiogram.filters import Command
 from aiogram import F
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -13,8 +14,8 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler("bot.log"),
-        logging.StreamHandler()
+        logging.FileHandler("bot.log", encoding="utf-8"),
+        logging.StreamHandler(sys.stdout)
     ]
 )
 logger = logging.getLogger(__name__)
