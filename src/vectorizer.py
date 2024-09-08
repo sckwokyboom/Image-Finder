@@ -26,6 +26,7 @@ def initialize_database(db_path):
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS image_embeddings (
             image_name TEXT PRIMARY KEY,
+            faiss_index INTEGER,
             embedding BLOB
         )
     ''')
@@ -33,13 +34,13 @@ def initialize_database(db_path):
     conn.close()
 
 
-def save_embeddings_to_sqlite(db_path, image_name, embedding):
+def save_embeddings_to_sqlite(db_path, faiss_index, image_name, embedding):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT OR REPLACE INTO image_embeddings (image_name, embedding)
-        VALUES (?, ?)
-    ''', (image_name, embedding.tobytes()))
+        INSERT OR REPLACE INTO image_embeddings (faiss_index, image_name, embedding)
+        VALUES (?, ?, ?)
+    ''', (faiss_index, image_name, embedding.tobytes()))
     conn.commit()
     conn.close()
 
@@ -125,17 +126,17 @@ def main():
     initialize_database(args.db_path)
 
     embeddings = []
-    image_paths = []
     faiss_index = faiss.IndexFlatL2(1536)
-
     for image_name in os.listdir(args.image_dir):
         image_path = os.path.join(args.image_dir, image_name)
         if os.path.isfile(image_path):
             embedding = vectorize_image(image_path, model, transform, device)
             embeddings.append(embedding.flatten())
-            image_paths.append(image_name)
 
-            save_embeddings_to_sqlite(args.db_path, image_name, embedding)
+            faiss_idx = faiss_index.ntotal
+            faiss_index.add(embedding)
+
+            save_embeddings_to_sqlite(args.db_path, faiss_idx, image_name, embedding)
 
     save_embeddings_to_faiss(faiss_index, embeddings, faiss_path=args.faiss_path)
     one_peace_demo_logger.info('Vectorization process has finished and data saved to SQLite and FAISS.')

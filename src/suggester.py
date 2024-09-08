@@ -9,14 +9,15 @@ import sqlite3
 one_peace_demo_logger = logging.getLogger(__name__)
 
 
-def get_image_paths_from_db(db_path):
+def get_image_name_by_faiss_index(db_path, faiss_index):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    cursor.execute('SELECT image_name FROM image_embeddings')
-    image_paths = [row[0] for row in cursor.fetchall()]
+    cursor.execute('SELECT image_name FROM image_embeddings WHERE faiss_index=?', (faiss_index,))
+    result = cursor.fetchone()
     conn.close()
-    return image_paths
-
+    if result:
+        return result[0]
+    return None
 
 def setup_logging(log_path):
     logging.basicConfig(level=logging.INFO)
@@ -99,18 +100,15 @@ def main():
 
     distances, indices = faiss_index.search(text_features, args.top_k)
 
-    image_paths = get_image_paths_from_db(args.db_path)
-
-    if not image_paths:
-        one_peace_demo_logger.error("No image embeddings found in the database!")
-        return
-
     one_peace_demo_logger.info(f'Top {args.top_k} results for query "{args.query}":')
     for i, idx in enumerate(indices[0]):
-        image_name = image_paths[idx]
-        distance = distances[0][i]
-        similarity = 1 / (1 + distance)
-        one_peace_demo_logger.info(f'{i + 1}. Image: {image_name}, Similarity: {similarity:.4f}')
+        image_name = get_image_name_by_faiss_index(args.db_path, idx)
+        if image_name:
+            distance = distances[0][i]
+            similarity = 1 / (1 + distance)
+            one_peace_demo_logger.info(f'{i + 1}. Image: {image_name}, Similarity: {similarity:.4f}')
+        else:
+            one_peace_demo_logger.warning(f'No image found for FAISS index {idx}')
 
 
 if __name__ == '__main__':
