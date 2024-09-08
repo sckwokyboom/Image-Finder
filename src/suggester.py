@@ -2,95 +2,116 @@ from argparse import ArgumentParser
 import logging
 import os
 import sys
-import json
 import torch
+import faiss
+import sqlite3
 
 one_peace_demo_logger = logging.getLogger(__name__)
 
 
-def main():
-    parser = ArgumentParser()
-    parser.add_argument('--embeddings-file', dest='embeddings_file', type=str, required=True,
-                        help='File containing precomputed image embeddings.')
-    parser.add_argument('--model-dir', dest='model_dir', type=str, required=True, help='Path to ONE-PEACE repository.')
-    parser.add_argument('--model-name', dest='model_name', type=str, required=True,
-                        help='Path to pre-trained model weights.')
-    parser.add_argument('--device', dest='torch_device', type=str, default='cuda', choices=['cuda', 'cpu', 'gpu'],
-                        help='Device to use for inference.')
-
-    args = parser.parse_args()
-
-    if args.torch_device is None:
-        if torch.cuda.is_available():
-            device = 'cuda'
-        else:
-            device = 'cpu'
-    else:
-        if args.torch_device not in {'cpu', 'cuda', 'gpu'}:
-            err_msg = f'The device "{args.torch_device}" is unknown!'
-            one_peace_demo_logger.error(err_msg)
-            raise ValueError(err_msg)
-        if (not torch.cuda.is_available()) and (args.torch_device in {'cuda', 'gpu'}):
-            err_msg = f'The device "{args.torch_device}" is not available!'
-            one_peace_demo_logger.error(err_msg)
-            raise ValueError(err_msg)
-        device = 'cpu' if (args.torch_device == 'cpu') else 'cuda'
-        one_peace_demo_logger.info(f'{device.upper()} is used.')
-
-        one_peace_dir = os.path.normpath(args.model_dir)
-        if not os.path.isdir(one_peace_dir):
-            err_msg = f'The directory "{one_peace_dir}" does not exist!'
-            one_peace_demo_logger.error(err_msg)
-            raise ValueError(err_msg)
-
-        model_name = os.path.normpath(args.model_name)
-        if not os.path.isfile(model_name):
-            err_msg = f'The file "{model_name}" does not exist!'
-            one_peace_demo_logger.error(err_msg)
-            raise ValueError(err_msg)
-
-        sys.path.append(os.path.join(one_peace_dir))
-        from one_peace.models import from_pretrained
-        one_peace_demo_logger.info('ONE-PEACE is attached.')
-
-        current_workdir = os.getcwd()
-        one_peace_demo_logger.info(f'Current working directory: {current_workdir}')
-        os.chdir(one_peace_dir)
-    one_peace_demo_logger.info(f'New working directory: {os.getcwd()}')
-    model = from_pretrained(model_name, device=device, dtype=args.torch_device)
-    one_peace_demo_logger.info('Model is loaded.')
-    os.chdir(current_workdir)
-    one_peace_demo_logger.info(f'Restored working directory: {os.getcwd()}')
-
-    with open(args.embeddings_file, 'r') as f:
-        image_embeddings = json.load(f)
-
-    query_text = ['A girl plays badminton in the heat.']
-    text_tokens = model.process_text(query_text)
-    with torch.no_grad():
-        text_features = model.extract_text_features(text_tokens)
-
-    best_match = None
-    best_similarity = -float('inf')
-    for image_name, image_embedding in image_embeddings.items():
-        image_embedding_tensor = torch.tensor(image_embedding).to(device)
-        similarity = image_embedding_tensor @ text_features.T
-        if similarity > best_similarity:
-            best_similarity = similarity
-            best_match = image_name
-
-    one_peace_demo_logger.info(f'Best match: {best_match} with similarity {best_similarity.item()}')
+def get_image_paths_from_db(db_path):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('SELECT image_name FROM image_embeddings')
+    image_paths = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return image_paths
 
 
-if __name__ == '__main__':
-    one_peace_demo_logger.setLevel(logging.INFO)
+def setup_logging(log_path):
+    logging.basicConfig(level=logging.INFO)
     fmt_str = '%(filename)s[LINE:%(lineno)d]# %(levelname)-8s ' \
               '[%(asctime)s]  %(message)s'
     formatter = logging.Formatter(fmt_str)
+
     stdout_handler = logging.StreamHandler(sys.stdout)
     stdout_handler.setFormatter(formatter)
     one_peace_demo_logger.addHandler(stdout_handler)
-    file_handler = logging.FileHandler('one_peace_search_demo.log')
+
+    log_dir = os.path.dirname(log_path)
+    if log_dir and not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+
+    file_handler = logging.FileHandler(log_path)
     file_handler.setFormatter(formatter)
     one_peace_demo_logger.addHandler(file_handler)
+
+
+def main():
+    parser = ArgumentParser()
+    parser.add_argument('--faiss-path', dest='faiss_path', type=str, required=True,
+                        help='Path to FAISS index file.')
+    parser.add_argument('--db-path', dest='db_path', type=str, required=True,
+                        help='Path to SQLite database with image embeddings.')
+    parser.add_argument('--model-dir', dest='model_dir', type=str, required=True,
+                        help='Path to ONE-PEACE repository.')
+    parser.add_argument('--model-name', dest='model_name', type=str, required=True,
+                        help='Path to pre-trained model weights.')
+    parser.add_argument('--device', dest='torch_device', type=str, default='cuda', choices=['cuda', 'cpu'],
+                        help='Device to use for inference.')
+    parser.add_argument('--query', dest='query', type=str, required=True,
+                        help='Text query for image search.')
+    parser.add_argument('--top-k', dest='top_k', type=int, default=5,
+                        help='Number of top results to return.')
+    parser.add_argument('--log-path', dest='log_path', type=str, default=None,
+                        help='Path to log file.')
+
+    args = parser.parse_args()
+
+    setup_logging(args.log_path)
+
+    device = torch.device('cuda' if torch.cuda.is_available() and args.torch_device != 'cpu' else 'cpu')
+
+    one_peace_dir = os.path.normpath(args.model_dir)
+    if not os.path.isdir(one_peace_dir):
+        err_msg = f'The dir "{one_peace_dir}" does not exist'
+        one_peace_demo_logger.error(err_msg)
+        raise ValueError(err_msg)
+
+    model_name = os.path.normpath(args.model_name)
+    if not os.path.isfile(model_name):
+        err_msg = f'The file "{model_name}" does not exist'
+        one_peace_demo_logger.error(err_msg)
+        raise ValueError(err_msg)
+
+    sys.path.append(os.path.join(one_peace_dir))
+    from one_peace.models import from_pretrained
+    one_peace_demo_logger.info('Loading ONE-PEACE model.')
+
+    current_workdir = os.getcwd()
+    one_peace_demo_logger.info(f'Current workdir: {current_workdir}')
+    os.chdir(one_peace_dir)
+    one_peace_demo_logger.info(f'New workdir: {os.getcwd()}')
+
+    model = from_pretrained(args.model_name, device=device, dtype=args.torch_device)
+
+    query_text = [args.query]
+    text_tokens = model.process_text(query_text)
+    with torch.no_grad():
+        text_features = model.extract_text_features(text_tokens).cpu().numpy()
+
+    if not os.path.isfile(args.faiss_path):
+        err_msg = f'The FAISS index file "{args.faiss_path}" does not exist!'
+        one_peace_demo_logger.error(err_msg)
+        raise ValueError(err_msg)
+
+    faiss_index = faiss.read_index(args.faiss_path)
+
+    distances, indices = faiss_index.search(text_features, args.top_k)
+
+    image_paths = get_image_paths_from_db(args.db_path)
+
+    if not image_paths:
+        one_peace_demo_logger.error("No image embeddings found in the database!")
+        return
+
+    one_peace_demo_logger.info(f'Top {args.top_k} results for query "{args.query}":')
+    for i, idx in enumerate(indices[0]):
+        image_name = image_paths[idx]
+        distance = distances[0][i]
+        similarity = 1 / (1 + distance)
+        one_peace_demo_logger.info(f'{i + 1}. Image: {image_name}, Similarity: {similarity:.4f}')
+
+
+if __name__ == '__main__':
     main()
