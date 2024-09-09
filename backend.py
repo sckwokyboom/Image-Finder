@@ -18,7 +18,14 @@ MODEL_NAME = 'C:\\Users\\sckwo\\PycharmProjects\\Image-RAG\\models\\one-peace.pt
 
 app = FastAPI()
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("bot.log", encoding="utf-8"),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
 logger = logging.getLogger(__name__)
 
 
@@ -45,10 +52,10 @@ def setup_model(model_dir, model_name):
 
     logger.info("Загрузка модели ONE-PEACE")
     current_workdir = os.getcwd()
-    logger.info(f'Current workdir: {current_workdir}')
+    logger.info(f'Текущая рабочая директория: {current_workdir}')
 
     os.chdir(one_peace_dir)
-    logger.info(f'New workdir: {os.getcwd()}')
+    logger.info(f'Новая рабочая директория: {os.getcwd()}')
     model = from_pretrained(model_name, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
     return model
 
@@ -126,6 +133,7 @@ async def startup_event():
 @app.post("/upload-image/")
 async def upload_image(file: UploadFile = File(...)):
     """Загрузка изображения и сохранение его эмбеддингов."""
+    logger.info("Изображение получено.")
     try:
         image = Image.open(file.file).convert("RGB")
     except Exception as e:
@@ -152,6 +160,7 @@ class QueryRequest(BaseModel):
 @app.post("/search/")
 async def search_images(query: QueryRequest):
     """Поиск изображений по запросу."""
+    logger.info(f"Текстовый запрос получен:{query.query}")
     text_tokens = model_op.process_text([query.query])
     with torch.no_grad():
         text_features = model_op.extract_text_features(text_tokens).cpu().numpy()
