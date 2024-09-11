@@ -11,4 +11,4 @@ export MODEL_DIR='/home/meno/image_rag/Image-Rag/ONE-PEACE'
 export MODEL_NAME='/home/meno/models/one-peace.pt'
 
 # Запуск приложения с логированием
-python backend.py > backend_output.log 2> backend_error.log
+nohup python3 backend.py > logs/backend_output.log 2> logs/backend_error.log
