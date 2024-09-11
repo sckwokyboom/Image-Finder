@@ -98,10 +98,11 @@ async def handle_text(message: types.Message):
 
                     logger.info(f"Проверка существования файла: {image_path}")
                     if os.path.exists(image_path):
-                        logger.info(f"Файл найден: {image_path}")
                         try:
+                            input_file = types.InputFile(image_path)
+
                             media_group.append(InputMediaPhoto(
-                                media=image_path,
+                                media=input_file,
                                 caption=f"Похожесть: {similarity:.4f}"
                             ))
                         except Exception as e:
