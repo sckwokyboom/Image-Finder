@@ -11,12 +11,14 @@ from annoy import AnnoyIndex
 
 one_peace_demo_logger = logging.getLogger(__name__)
 
+
 def vectorize_image(image_path, model, transform, device):
     image = Image.open(image_path).convert("RGB")
     image = transform(image).unsqueeze(0).to(device)
     with torch.no_grad():
         embedding = model.extract_image_features(image)
     return embedding.cpu().numpy()
+
 
 def initialize_database(db_path):
     conn = sqlite3.connect(db_path)
@@ -30,6 +32,7 @@ def initialize_database(db_path):
     conn.commit()
     conn.close()
 
+
 def save_embeddings_to_sqlite(db_path, image_name, embedding):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -40,12 +43,15 @@ def save_embeddings_to_sqlite(db_path, image_name, embedding):
     conn.commit()
     conn.close()
 
-def update_annoy_index(annoy_index, image_embeddings, image_index, n_trees=10):
-    annoy_index.add_item(image_index, image_embeddings)
-    annoy_index.build(n_trees)
 
-def save_annoy_index(annoy_index, index_path):
+def add_to_annoy_index(annoy_index, image_embeddings, image_index):
+    annoy_index.add_item(image_index, image_embeddings)
+
+
+def save_annoy_index(annoy_index, index_path, n_trees=10):
+    annoy_index.build(n_trees)
     annoy_index.save(index_path)
+
 
 def setup_logging(log_path):
     logging.basicConfig(level=logging.INFO)
@@ -64,6 +70,7 @@ def setup_logging(log_path):
     file_handler = logging.FileHandler(log_path)
     file_handler.setFormatter(formatter)
     one_peace_demo_logger.addHandler(file_handler)
+
 
 def main():
     parser = ArgumentParser()
@@ -127,7 +134,7 @@ def main():
         first_embedding = vectorize_image(first_image_path, model, transform, device)
         embedding_dim = first_embedding.shape[1]
 
-        annoy_index = AnnoyIndex(embedding_dim, 'angular')  # Угловая метрика
+        annoy_index = AnnoyIndex(embedding_dim, 'angular')
     else:
         one_peace_demo_logger.error("No images found in the directory.")
         sys.exit(1)
@@ -137,11 +144,12 @@ def main():
         if os.path.isfile(image_path):
             embedding = vectorize_image(image_path, model, transform, device)
             save_embeddings_to_sqlite(args.db_path, image_name, embedding)
-            update_annoy_index(annoy_index, embedding[0], idx)
+            add_to_annoy_index(annoy_index, embedding[0], idx)
 
     save_annoy_index(annoy_index, args.annoy_index_path)
     one_peace_demo_logger.info(f'Annoy index saved to {args.annoy_index_path}')
     one_peace_demo_logger.info('Vectorization and indexing process has finished.')
+
 
 if __name__ == '__main__':
     main()
