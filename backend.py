@@ -14,8 +14,8 @@ from sentence_transformers import SentenceTransformer
 from torchvision import transforms
 from scipy.spatial.distance import cdist
 
-IMAGE_DIR = "/resources/images"
-DB_PATH = os.path.abspath("/resources/images_metadata.db")
+IMAGE_DIR = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/images")
+DB_PATH = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/images_metadata.db")
 MODEL_DIR = 'ONE-PEACE/'
 MODEL_NAME = '/home/meno/models/one-peace.pt'
 
