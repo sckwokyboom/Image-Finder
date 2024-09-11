@@ -94,7 +94,7 @@ async def handle_text(message: types.Message):
                 for result in results[:10]:
                     image_name = result['image_name']
                     similarity = result['similarity']
-                    image_path = os.path.join("/resources/images/", image_name)
+                    image_path = os.path.join("/home/meno/image_rag/Image-RAG/resources/images/", image_name)
 
                     logger.info(f"Проверка существования файла: {image_path}")
                     if os.path.exists(image_path):
