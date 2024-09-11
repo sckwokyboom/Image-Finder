@@ -101,7 +101,7 @@ async def handle_text(message: types.Message):
                         logger.info(f"Файл найден: {image_path}")
                         try:
                             media_group.append(InputMediaPhoto(
-                                media=types.InputFile(image_path),
+                                media=image_path,
                                 caption=f"Похожесть: {similarity:.4f}"
                             ))
                         except Exception as e:
