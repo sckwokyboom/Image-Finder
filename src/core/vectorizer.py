@@ -1,15 +1,16 @@
-from argparse import ArgumentParser
-from torchvision import transforms
-from PIL import Image
 import logging
 import os
-import sys
-import torch
 import sqlite3
-import numpy as np
-from annoy import AnnoyIndex
+import sys
+from argparse import ArgumentParser
+
 import easyocr
-from transformers import AutoTokenizer, AutoModel
+import numpy as np
+import torch
+from PIL import Image
+from annoy import AnnoyIndex
+from sentence_transformers import SentenceTransformer
+from torchvision import transforms
 
 one_peace_demo_logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ def vectorize_image(image_path, model, transform, device):
     return embedding.cpu().numpy()
 
 
-def extract_text_embedding(image_path, tokenizer, xlm_roberta_model, device):
+def extract_text_embedding(image_path, sbert_model, device):
     model_storage_dir = "/userspace/kmy/image_rag/models/easy_ocr"
     reader = easyocr.Reader(['en', 'ru'], model_storage_directory=model_storage_dir,
                             user_network_directory=model_storage_dir)
@@ -32,12 +33,19 @@ def extract_text_embedding(image_path, tokenizer, xlm_roberta_model, device):
     text = " ".join([item for item in result])
 
     if text.strip():
-        inputs = tokenizer(text, return_tensors="pt", padding=True, truncation=True).to(device)
         with torch.no_grad():
-            text_embedding = xlm_roberta_model(**inputs).last_hidden_state.mean(dim=1).cpu().numpy()
+            text_embedding = get_sbert_embedding(text, sbert_model, device)
         return text, text_embedding
     else:
         return "", None
+
+
+def get_sbert_embedding(query, model, device):
+    if isinstance(query, str) and query.strip():
+        query_embeddings = model.encode([query], convert_to_tensor=True, device=device)
+        return query_embeddings.cpu().numpy()
+    else:
+        return None
 
 
 def initialize_database(db_path):
@@ -140,8 +148,7 @@ def main():
     model = from_pretrained(args.model_name, device=device, dtype=args.torch_device)
     os.chdir(current_workdir)
 
-    tokenizer = AutoTokenizer.from_pretrained('xlm-roberta-base')
-    xlm_roberta_model = AutoModel.from_pretrained('xlm-roberta-base').to(device)
+    sbert_model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2').to(device)
 
     transform = transforms.Compose([
         transforms.Resize((256, 256)),
@@ -158,7 +165,7 @@ def main():
         embedding_dim = first_embedding.shape[1]
 
         image_annoy_index = AnnoyIndex(embedding_dim, 'angular')
-        text_annoy_index = AnnoyIndex(768, 'angular')
+        text_annoy_index = AnnoyIndex(384, 'angular')
     else:
         one_peace_demo_logger.error("No images found in the directory.")
         sys.exit(1)
@@ -167,7 +174,7 @@ def main():
         image_path = os.path.join(args.image_dir, image_name)
         if os.path.isfile(image_path):
             image_embedding = vectorize_image(image_path, model, transform, device)
-            text, text_embedding = extract_text_embedding(image_path, tokenizer, xlm_roberta_model, device)
+            text, text_embedding = extract_text_embedding(image_path, sbert_model, device)
 
             save_embeddings_to_sqlite(args.db_path, image_name, image_embedding, text, text_embedding)
             add_to_annoy_index(image_annoy_index, image_embedding[0], idx)

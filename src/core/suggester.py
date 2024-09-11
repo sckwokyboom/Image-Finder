@@ -1,14 +1,13 @@
-from argparse import ArgumentParser
-from torchvision import transforms
-from PIL import Image
 import logging
 import os
-import sys
-import torch
 import sqlite3
+import sys
+from argparse import ArgumentParser
+
 import numpy as np
+import torch
 from annoy import AnnoyIndex
-from transformers import AutoTokenizer, AutoModel
+from sentence_transformers import SentenceTransformer
 
 one_peace_demo_logger = logging.getLogger(__name__)
 
@@ -63,11 +62,12 @@ def setup_logging(log_path):
     one_peace_demo_logger.addHandler(file_handler)
 
 
-def get_xlm_roberta_embedding(query, model, tokenizer, device):
-    inputs = tokenizer(query, return_tensors="pt", padding=True, truncation=True).to(device)
-    with torch.no_grad():
-        outputs = model(**inputs)
-    return outputs.last_hidden_state.mean(dim=1).cpu().numpy()
+def get_sbert_embedding(query, model, device):
+    if isinstance(query, str) and query.strip():
+        query_embeddings = model.encode([query], convert_to_tensor=True, device=device)
+        return query_embeddings.cpu().numpy()
+    else:
+        return None
 
 
 def main():
@@ -111,8 +111,7 @@ def main():
 
     # Load XLM-RoBERTa model and tokenizer
     one_peace_demo_logger.info('Loading XLM-RoBERTa model.')
-    tokenizer = AutoTokenizer.from_pretrained('xlm-roberta-base')
-    roberta_model = AutoModel.from_pretrained('xlm-roberta-base').to(device)
+    sbert_model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2').to(device)
 
     # Get embeddings for query
     query_text = [args.query]
@@ -122,8 +121,7 @@ def main():
     with torch.no_grad():
         one_peace_text_features = model.extract_text_features(text_tokens).cpu().numpy()
 
-    # XLM-RoBERTa text embedding
-    xlm_roberta_features = get_xlm_roberta_embedding(query_text, roberta_model, tokenizer, device)
+    sbert_features = get_sbert_embedding(args.query, sbert_model, device)
 
     # Load Annoy indices
     image_names, image_embeddings, text_embeddings = get_image_embeddings(args.db_path)
@@ -136,21 +134,28 @@ def main():
         one_peace_demo_logger.info(f'Top {args.top_k} results for ONE-PEACE query "{args.query}":')
         for i, idx in enumerate(indices):
             image_name = image_names[idx]
-            similarity = 1 - distances[i]
+            similarity = distances[i]
             one_peace_demo_logger.info(f'{i + 1}. Image: {image_name}, Similarity: {similarity:.4f}')
     else:
         one_peace_demo_logger.error("ONE-PEACE Annoy index does not exist.")
 
     if os.path.exists(args.text_annoy_index_path):
-        one_peace_demo_logger.info(f'Loading existing text Annoy index from {args.text_annoy_index_path}.')
-        text_embedding_dim = xlm_roberta_features.shape[1]
-        text_annoy_index = load_annoy_index(args.text_annoy_index_path, text_embedding_dim)
-        indices, distances = search_annoy_index(text_annoy_index, xlm_roberta_features[0], top_k=args.top_k)
-        one_peace_demo_logger.info(f'Top {args.top_k} results for XLM-RoBERTa query "{args.query}":')
-        for i, idx in enumerate(indices):
-            image_name = image_names[idx]
-            similarity = 1 - distances[i]
-            one_peace_demo_logger.info(f'{i + 1}. Image: {image_name}, Similarity: {similarity:.4f}')
+        if sbert_features is not None:
+            text_embedding_dim = sbert_features.shape[1]
+            one_peace_demo_logger.info(f"Extracted SBERT features for query. Dimension: {text_embedding_dim}")
+
+            # Загрузка и использование Annoy индекса для текстовых эмбеддингов
+            text_annoy_index = load_annoy_index(args.text_annoy_index_path, text_embedding_dim)
+            text_indices, text_distances = search_annoy_index(text_annoy_index, sbert_features[0], top_k=args.top_k)
+
+            one_peace_demo_logger.info(f'Top {args.top_k} text-based results for query "{args.query}":')
+            for i, idx in enumerate(text_indices):
+                image_name = image_names[idx]
+                similarity = text_distances[i]
+                one_peace_demo_logger.info(f'{i + 1}. Image: {image_name}, Similarity: {similarity:.4f}')
+        else:
+            one_peace_demo_logger.warning(f"No text embeddings could be extracted for the query: {query_text}")
+            one_peace_demo_logger.info("Skipping text-based search due to missing embeddings.")
     else:
         one_peace_demo_logger.error("XLM-RoBERTa Annoy index does not exist.")
 
