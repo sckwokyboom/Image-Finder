@@ -1,4 +1,3 @@
 /src/front/.env
-/ONE-PEACE/
-/resources/images/
+/ONE-PEACE/*
 /models/one-peace.pt
