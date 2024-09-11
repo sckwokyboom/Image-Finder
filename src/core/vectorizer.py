@@ -7,9 +7,9 @@ import sys
 import torch
 import sqlite3
 import numpy as np
+from annoy import AnnoyIndex
 
 one_peace_demo_logger = logging.getLogger(__name__)
-
 
 def vectorize_image(image_path, model, transform, device):
     image = Image.open(image_path).convert("RGB")
@@ -17,7 +17,6 @@ def vectorize_image(image_path, model, transform, device):
     with torch.no_grad():
         embedding = model.extract_image_features(image)
     return embedding.cpu().numpy()
-
 
 def initialize_database(db_path):
     conn = sqlite3.connect(db_path)
@@ -31,7 +30,6 @@ def initialize_database(db_path):
     conn.commit()
     conn.close()
 
-
 def save_embeddings_to_sqlite(db_path, image_name, embedding):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -42,6 +40,12 @@ def save_embeddings_to_sqlite(db_path, image_name, embedding):
     conn.commit()
     conn.close()
 
+def update_annoy_index(annoy_index, image_embeddings, image_index, n_trees=10):
+    annoy_index.add_item(image_index, image_embeddings)
+    annoy_index.build(n_trees)
+
+def save_annoy_index(annoy_index, index_path):
+    annoy_index.save(index_path)
 
 def setup_logging(log_path):
     logging.basicConfig(level=logging.INFO)
@@ -61,7 +65,6 @@ def setup_logging(log_path):
     file_handler.setFormatter(formatter)
     one_peace_demo_logger.addHandler(file_handler)
 
-
 def main():
     parser = ArgumentParser()
     parser.add_argument('--image-dir', dest='image_dir', type=str, required=True,
@@ -75,6 +78,8 @@ def main():
                         help='Device to use for inference.')
     parser.add_argument('--log-path', dest='log_path', type=str, default=None,
                         help='Path to log file.')
+    parser.add_argument('--annoy-index-path', dest='annoy_index_path', type=str, required=True,
+                        help='Path to Annoy index file.')
 
     args = parser.parse_args()
 
@@ -116,14 +121,27 @@ def main():
 
     initialize_database(args.db_path)
 
-    for image_name in os.listdir(args.image_dir):
+    image_dir_files = os.listdir(args.image_dir)
+    if image_dir_files:
+        first_image_path = os.path.join(args.image_dir, image_dir_files[0])
+        first_embedding = vectorize_image(first_image_path, model, transform, device)
+        embedding_dim = first_embedding.shape[1]
+
+        annoy_index = AnnoyIndex(embedding_dim, 'angular')  # Угловая метрика
+    else:
+        one_peace_demo_logger.error("No images found in the directory.")
+        sys.exit(1)
+
+    for idx, image_name in enumerate(image_dir_files):
         image_path = os.path.join(args.image_dir, image_name)
         if os.path.isfile(image_path):
             embedding = vectorize_image(image_path, model, transform, device)
             save_embeddings_to_sqlite(args.db_path, image_name, embedding)
+            update_annoy_index(annoy_index, embedding[0], idx)
 
-    one_peace_demo_logger.info('Vectorization process has finished and data saved to SQLite.')
-
+    save_annoy_index(annoy_index, args.annoy_index_path)
+    one_peace_demo_logger.info(f'Annoy index saved to {args.annoy_index_path}')
+    one_peace_demo_logger.info('Vectorization and indexing process has finished.')
 
 if __name__ == '__main__':
     main()

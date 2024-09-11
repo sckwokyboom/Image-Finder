@@ -1,4 +1,6 @@
 from argparse import ArgumentParser
+from torchvision import transforms
+from PIL import Image
 import logging
 import os
 import sys
@@ -6,8 +8,10 @@ import torch
 import sqlite3
 import numpy as np
 from scipy.spatial.distance import cdist
+from annoy import AnnoyIndex
 
 one_peace_demo_logger = logging.getLogger(__name__)
+
 
 def get_image_embeddings(db_path):
     conn = sqlite3.connect(db_path)
@@ -23,6 +27,18 @@ def get_image_embeddings(db_path):
         embeddings.append(np.frombuffer(row[1], dtype=np.float32))
 
     return image_names, np.vstack(embeddings)
+
+
+def load_annoy_index(index_path, embedding_dim):
+    annoy_index = AnnoyIndex(embedding_dim, 'angular')
+    annoy_index.load(index_path)
+    return annoy_index
+
+
+def search_annoy_index(annoy_index, query_embedding, top_k=5):
+    indices = annoy_index.get_nns_by_vector(query_embedding, top_k, include_distances=True)
+    return indices
+
 
 def setup_logging(log_path):
     logging.basicConfig(level=logging.INFO)
@@ -42,6 +58,7 @@ def setup_logging(log_path):
     file_handler.setFormatter(formatter)
     one_peace_demo_logger.addHandler(file_handler)
 
+
 def main():
     parser = ArgumentParser()
     parser.add_argument('--db-path', dest='db_path', type=str, required=True,
@@ -56,6 +73,8 @@ def main():
                         help='Text query for image search.')
     parser.add_argument('--top-k', dest='top_k', type=int, default=5,
                         help='Number of top results to return.')
+    parser.add_argument('--annoy-index-path', dest='annoy_index_path', type=str, required=True,
+                        help='Path to Annoy index file.')
     parser.add_argument('--log-path', dest='log_path', type=str, default=None,
                         help='Path to log file.')
 
@@ -96,16 +115,20 @@ def main():
     os.chdir(current_workdir)
     one_peace_demo_logger.info(f'Restored workdir: {os.getcwd()}')
 
-    image_names, image_embeddings = get_image_embeddings(args.db_path)
+    if os.path.exists(args.annoy_index_path):
+        one_peace_demo_logger.info(f'Loading existing Annoy index from {args.annoy_index_path}.')
+        embedding_dim = text_features.shape[1]
+        annoy_index = load_annoy_index(args.annoy_index_path, embedding_dim)
+        indices, distances = search_annoy_index(annoy_index, text_features[0], top_k=args.top_k)
+        one_peace_demo_logger.info(f'Top {args.top_k} results for query "{args.query}":')
+        image_names, _ = get_image_embeddings(args.db_path)
+        for i, idx in enumerate(indices):
+            image_name = image_names[idx]
+            similarity = 1 - distances[i]
+            one_peace_demo_logger.info(f'{i + 1}. Image: {image_name}, Similarity: {similarity:.4f}')
+    else:
+        one_peace_demo_logger.error("Annoy index does not exist.")
 
-    distances = cdist(text_features, image_embeddings, metric='cosine').flatten()
-    indices = np.argsort(distances)[:args.top_k]
-
-    one_peace_demo_logger.info(f'Top {args.top_k} results for query "{args.query}":')
-    for i, idx in enumerate(indices):
-        image_name = image_names[idx]
-        similarity = 1 - distances[idx]
-        one_peace_demo_logger.info(f'{i + 1}. Image: {image_name}, Similarity: {similarity:.4f}')
 
 if __name__ == '__main__':
     main()

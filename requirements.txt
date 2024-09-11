@@ -34,3 +34,5 @@ huggingface-hub~=0.24.6
 timm~=0.6.11
 opencv-python~=4.7.0.72
 einops~=0.6.1
+annoy~=1.17.3
+python-dotenv~=1.0.1
