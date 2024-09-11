@@ -1,5 +1,4 @@
 import sys
-
 import requests
 import asyncio
 import logging
@@ -10,6 +9,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from dotenv import load_dotenv
 import os
 
+# Настройка логгирования
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -20,10 +20,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Загрузка переменных окружения
 load_dotenv()
 API_TOKEN = os.getenv("API_TOKEN")
 API_URL = os.getenv("API_URL")
 
+# Проверка наличия необходимых переменных
 if not API_TOKEN or not API_URL:
     logger.error("Не удалось загрузить API_TOKEN или API_URL из .env файла")
     raise ValueError("Проверьте файл .env для корректной настройки токена и URL")
@@ -32,30 +34,35 @@ bot = Bot(token=API_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
 
+# Стартовая команда
 @dp.message(Command('start'))
 async def send_welcome(message: types.Message):
     logger.info(f"Пользователь {message.from_user.id} отправил команду /start")
     await message.answer("Привет! Отправь изображение для загрузки или текст для поиска.")
 
 
+# Обработка изображений
 @dp.message(F.photo)
 async def handle_image(message: types.Message):
     logger.info(f"Получено изображение от пользователя {message.from_user.id}")
     try:
-        photo = message.photo[-1]
+        photo = message.photo[-1]  # Берём фото с наибольшим разрешением
         file_info = await bot.get_file(photo.file_id)
         file_path = file_info.file_path
 
+        # Получаем URL для скачивания изображения
         image_url = f'https://api.telegram.org/file/bot{API_TOKEN}/{file_path}'
         image_response = requests.get(image_url)
 
+        # Проверка успешности скачивания
         if image_response.status_code != 200:
             logger.error(f"Ошибка при загрузке изображения {file_path}")
             await message.answer("Не удалось загрузить изображение.")
             return
 
-        files = {'file': image_response.content}
+        files = {'file': ('image.jpg', image_response.content)}
 
+        # Отправляем изображение на бэкенд
         response = requests.post(f"{API_URL}/upload-image/", files=files)
         if response.status_code == 200:
             logger.info(f"Изображение успешно загружено на сервер: {file_path}")
@@ -68,6 +75,7 @@ async def handle_image(message: types.Message):
         await message.answer("Произошла ошибка при обработке изображения.")
 
 
+# Обработка текстовых запросов
 @dp.message(F.text)
 async def handle_text(message: types.Message):
     logger.info(f"Получен текстовый запрос от пользователя {message.from_user.id}: {message.text}")
@@ -79,7 +87,7 @@ async def handle_text(message: types.Message):
             results = response.json()
             if results:
                 for result in results:
-                    await message.answer(f"Image: {result['image_name']}, Similarity: {result['similarity']:.4f}")
+                    await message.answer(f"Изображение: {result['image_name']}, Похожесть: {result['similarity']:.4f}")
             else:
                 await message.answer("Ничего не найдено.")
         else:
@@ -90,6 +98,7 @@ async def handle_text(message: types.Message):
         await message.answer("Произошла ошибка при обработке запроса.")
 
 
+# Основная функция
 async def main():
     logger.info("Бот запускается...")
     try:
