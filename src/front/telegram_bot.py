@@ -99,7 +99,7 @@ async def handle_text(message: types.Message):
                     logger.info(f"Проверка существования файла: {image_path}")
                     if os.path.exists(image_path):
                         try:
-                            input_file = types.InputFile(image_path)
+                            input_file = types.FSInputFile(image_path)
 
                             media_group.append(InputMediaPhoto(
                                 media=input_file,
