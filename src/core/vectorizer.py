@@ -8,6 +8,8 @@ import torch
 import sqlite3
 import numpy as np
 from annoy import AnnoyIndex
+import easyocr
+from transformers import AutoTokenizer, AutoModel
 
 one_peace_demo_logger = logging.getLogger(__name__)
 
@@ -20,32 +22,53 @@ def vectorize_image(image_path, model, transform, device):
     return embedding.cpu().numpy()
 
 
+def extract_text_embedding(image_path, tokenizer, xlm_roberta_model, device):
+    model_storage_dir = "/userspace/kmy/image_rag/models/easy_ocr"
+    reader = easyocr.Reader(['en', 'ru'], model_storage_directory=model_storage_dir,
+                            user_network_directory=model_storage_dir)
+
+    image = Image.open(image_path).convert("RGB")
+    result = reader.readtext(np.array(image), detail=0)
+    text = " ".join([item for item in result])
+
+    if text.strip():
+        inputs = tokenizer(text, return_tensors="pt", padding=True, truncation=True).to(device)
+        with torch.no_grad():
+            text_embedding = xlm_roberta_model(**inputs).last_hidden_state.mean(dim=1).cpu().numpy()
+        return text, text_embedding
+    else:
+        return "", None
+
+
 def initialize_database(db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS image_embeddings (
             image_name TEXT PRIMARY KEY,
-            embedding BLOB
+            embedding BLOB,
+            recognized_text TEXT,
+            text_embedding BLOB
         )
     ''')
     conn.commit()
     conn.close()
 
 
-def save_embeddings_to_sqlite(db_path, image_name, embedding):
+def save_embeddings_to_sqlite(db_path, image_name, image_embedding, text, text_embedding):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT OR REPLACE INTO image_embeddings (image_name, embedding)
-        VALUES (?, ?)
-    ''', (image_name, embedding.tobytes()))
+        INSERT OR REPLACE INTO image_embeddings (image_name, embedding, recognized_text, text_embedding)
+        VALUES (?, ?, ?, ?)
+    ''', (
+        image_name, image_embedding.tobytes(), text, text_embedding.tobytes() if text_embedding is not None else None))
     conn.commit()
     conn.close()
 
 
-def add_to_annoy_index(annoy_index, image_embeddings, image_index):
-    annoy_index.add_item(image_index, image_embeddings)
+def add_to_annoy_index(annoy_index, embeddings, image_index):
+    annoy_index.add_item(image_index, embeddings)
 
 
 def save_annoy_index(annoy_index, index_path, n_trees=10):
@@ -85,8 +108,10 @@ def main():
                         help='Device to use for inference.')
     parser.add_argument('--log-path', dest='log_path', type=str, default=None,
                         help='Path to log file.')
-    parser.add_argument('--annoy-index-path', dest='annoy_index_path', type=str, required=True,
-                        help='Path to Annoy index file.')
+    parser.add_argument('--image-annoy-index-path', dest='image_annoy_index_path', type=str, required=True,
+                        help='Path to image Annoy index file.')
+    parser.add_argument('--text-annoy-index-path', dest='text_annoy_index_path', type=str, required=True,
+                        help='Path to text Annoy index file.')
 
     args = parser.parse_args()
 
@@ -111,14 +136,12 @@ def main():
     one_peace_demo_logger.info('ONE-PEACE model is being loaded.')
 
     current_workdir = os.getcwd()
-    one_peace_demo_logger.info(f'Current workdir: {current_workdir}')
     os.chdir(one_peace_dir)
-    one_peace_demo_logger.info(f'New workdir: {os.getcwd()}')
-
     model = from_pretrained(args.model_name, device=device, dtype=args.torch_device)
-
     os.chdir(current_workdir)
-    one_peace_demo_logger.info(f'Restored workdir: {os.getcwd()}')
+
+    tokenizer = AutoTokenizer.from_pretrained('xlm-roberta-base')
+    xlm_roberta_model = AutoModel.from_pretrained('xlm-roberta-base').to(device)
 
     transform = transforms.Compose([
         transforms.Resize((256, 256)),
@@ -134,7 +157,8 @@ def main():
         first_embedding = vectorize_image(first_image_path, model, transform, device)
         embedding_dim = first_embedding.shape[1]
 
-        annoy_index = AnnoyIndex(embedding_dim, 'angular')
+        image_annoy_index = AnnoyIndex(embedding_dim, 'angular')
+        text_annoy_index = AnnoyIndex(768, 'angular')
     else:
         one_peace_demo_logger.error("No images found in the directory.")
         sys.exit(1)
@@ -142,12 +166,20 @@ def main():
     for idx, image_name in enumerate(image_dir_files):
         image_path = os.path.join(args.image_dir, image_name)
         if os.path.isfile(image_path):
-            embedding = vectorize_image(image_path, model, transform, device)
-            save_embeddings_to_sqlite(args.db_path, image_name, embedding)
-            add_to_annoy_index(annoy_index, embedding[0], idx)
+            image_embedding = vectorize_image(image_path, model, transform, device)
+            text, text_embedding = extract_text_embedding(image_path, tokenizer, xlm_roberta_model, device)
 
-    save_annoy_index(annoy_index, args.annoy_index_path)
-    one_peace_demo_logger.info(f'Annoy index saved to {args.annoy_index_path}')
+            save_embeddings_to_sqlite(args.db_path, image_name, image_embedding, text, text_embedding)
+            add_to_annoy_index(image_annoy_index, image_embedding[0], idx)
+
+            if text_embedding is not None:
+                add_to_annoy_index(text_annoy_index, text_embedding[0], idx)
+
+    save_annoy_index(image_annoy_index, args.image_annoy_index_path)
+    save_annoy_index(text_annoy_index, args.text_annoy_index_path)
+
+    one_peace_demo_logger.info(f'Image Annoy index saved to {args.image_annoy_index_path}')
+    one_peace_demo_logger.info(f'Text Annoy index saved to {args.text_annoy_index_path}')
     one_peace_demo_logger.info('Vectorization and indexing process has finished.')
 
 
