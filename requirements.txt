@@ -6,3 +6,5 @@ sentence_transformers
 python-dotenv
 aiogram
 fastapi
+python-multipart
+uvicorn~=0.30.6

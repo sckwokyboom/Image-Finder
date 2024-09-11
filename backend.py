@@ -17,7 +17,7 @@ from scipy.spatial.distance import cdist
 IMAGE_DIR = "resources/images"
 DB_PATH = "resources/images_metadata.db"
 MODEL_DIR = 'ONE-PEACE/'
-MODEL_NAME = '/home/meno/models/easy_ocr/one-peace.pt'
+MODEL_NAME = '/home/meno/models/one-peace.pt'
 
 app = FastAPI()
 
