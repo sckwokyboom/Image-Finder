@@ -81,32 +81,52 @@ async def handle_text(message: types.Message):
     logger.info(f"Получен текстовый запрос от пользователя {message.from_user.id}: {message.text}")
     try:
         query = message.text
+        logger.info(f"Отправка запроса на поиск: {query}")
         response = requests.post(f"{API_URL}/search/", json={"query": query})
 
         if response.status_code == 200:
+            logger.info(f"Успешный ответ от бэкенда: {response.status_code}")
             results = response.json()
             if results:
                 media_group = []
+                logger.info(f"Найдено {len(results)} результатов, обработка первых 10")
 
-                for result in results[:10]:  # Ограничиваем до 10 изображений
+                for result in results[:10]:
                     image_name = result['image_name']
-                    image_path = os.path.join("/resources/images", image_name)
+                    similarity = result['similarity']
+                    image_path = os.path.join("/resources/images/", image_name)
 
+                    logger.info(f"Проверка существования файла: {image_path}")
                     if os.path.exists(image_path):
-                        media_group.append(InputMediaPhoto(media=types.InputFile(image_path),
-                                                           caption=f"Похожесть: {result['similarity']:.4f}"))
+                        logger.info(f"Файл найден: {image_path}")
+                        try:
+                            media_group.append(InputMediaPhoto(
+                                media=types.InputFile(image_path),
+                                caption=f"Похожесть: {similarity:.4f}"
+                            ))
+                        except Exception as e:
+                            logger.error(f"Ошибка при создании InputMediaPhoto для {image_path}: {e}")
+                    else:
+                        logger.error(f"Файл не найден: {image_path}")
 
                 if media_group:
-                    await message.answer_media_group(media_group)
+                    logger.info(f"Отправка {len(media_group)} изображений в виде группы")
+                    try:
+                        await message.answer_media_group(media_group)
+                    except Exception as e:
+                        logger.error(f"Ошибка при отправке группы изображений: {e}")
+                        await message.answer("Ошибка при отправке изображений.")
                 else:
+                    logger.warning("Медиа-группа пуста, нет изображений для отправки")
                     await message.answer("Не удалось найти изображения.")
             else:
+                logger.info("По запросу ничего не найдено.")
                 await message.answer("Ничего не найдено.")
         else:
             logger.error(f"Ошибка при запросе поиска: {response.status_code}")
-            await message.answer("Ошибка при поиске.")
+            await message.answer(f"Ошибка при поиске: {response.status_code}")
     except Exception as e:
-        logger.exception("Произошла ошибка при обработке текстового запроса.")
+        logger.exception(f"Произошла ошибка при обработке текстового запроса: {e}")
         await message.answer("Произошла ошибка при обработке запроса.")
 
 
