@@ -6,6 +6,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram import F
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import InputMediaPhoto
 from dotenv import load_dotenv
 import os
 
@@ -75,7 +76,6 @@ async def handle_image(message: types.Message):
         await message.answer("Произошла ошибка при обработке изображения.")
 
 
-# Обработка текстовых запросов
 @dp.message(F.text)
 async def handle_text(message: types.Message):
     logger.info(f"Получен текстовый запрос от пользователя {message.from_user.id}: {message.text}")
@@ -86,8 +86,20 @@ async def handle_text(message: types.Message):
         if response.status_code == 200:
             results = response.json()
             if results:
-                for result in results:
-                    await message.answer(f"Изображение: {result['image_name']}, Похожесть: {result['similarity']:.4f}")
+                media_group = []
+
+                for result in results[:10]:  # Ограничиваем до 10 изображений
+                    image_name = result['image_name']
+                    image_path = os.path.join("/resources/images", image_name)
+
+                    if os.path.exists(image_path):
+                        media_group.append(InputMediaPhoto(types.InputFile(image_path),
+                                                           caption=f"Похожесть: {result['similarity']:.4f}"))
+
+                if media_group:
+                    await message.answer_media_group(media_group)
+                else:
+                    await message.answer("Не удалось найти изображения.")
             else:
                 await message.answer("Ничего не найдено.")
         else:
