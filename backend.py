@@ -1,5 +1,7 @@
 import sys
 import os
+
+import easyocr
 import torch
 import sqlite3
 import numpy as np
@@ -8,6 +10,7 @@ from PIL import Image
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from sentence_transformers import SentenceTransformer
 from torchvision import transforms
 from scipy.spatial.distance import cdist
 
@@ -29,7 +32,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def setup_model(model_dir, model_name):
+def setup_models(model_dir, model_name):
     """Загрузка модели ONE-PEACE с проверкой путей."""
     if not os.path.isdir(model_dir):
         raise FileNotFoundError(f'The directory "{model_dir}" does not exist')
@@ -57,7 +60,10 @@ def setup_model(model_dir, model_name):
     os.chdir(one_peace_dir)
     logger.info(f'Новая рабочая директория: {os.getcwd()}')
     model = from_pretrained(model_name, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
-    return model
+
+    logger.info("Загрузка модели SBERT")
+    model_sbert = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+    return model, model_sbert
 
 
 def initialize_database(db_path):
@@ -70,37 +76,39 @@ def initialize_database(db_path):
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS image_embeddings (
             image_name TEXT PRIMARY KEY,
-            embedding BLOB
+            embedding BLOB,
+            recognized_text TEXT,
+            text_embedding BLOB
         )
     ''')
     conn.commit()
     conn.close()
 
-
-def save_embedding(db_path, image_name, embedding):
-    """Сохранение эмбеддингов изображения в базу данных."""
+def save_embedding(db_path, image_name, embedding, recognized_text):
+    """Сохранение эмбеддингов и текста OCR в базу данных."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT OR REPLACE INTO image_embeddings (image_name, embedding)
-        VALUES (?, ?)
-    ''', (image_name, embedding.tobytes()))
+        INSERT OR REPLACE INTO image_embeddings (image_name, embedding, recognized_text)
+        VALUES (?, ?, ?)
+    ''', (image_name, embedding.tobytes(), recognized_text))
     conn.commit()
     conn.close()
 
 
 def get_image_embeddings(db_path):
-    """Получение всех эмбеддингов изображений из базы данных."""
+    """Получение всех эмбеддингов изображений и текстов OCR из базы данных."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    cursor.execute('SELECT image_name, embedding FROM image_embeddings')
+    cursor.execute('SELECT image_name, embedding, recognized_text FROM image_embeddings')
     results = cursor.fetchall()
     conn.close()
 
     image_names = [row[0] for row in results]
     embeddings = [np.frombuffer(row[1], dtype=np.float32) for row in results]
+    ocr_texts = [row[2] for row in results]
 
-    return image_names, np.vstack(embeddings)
+    return image_names, np.vstack(embeddings), ocr_texts
 
 
 def vectorize_image(model, transform, image: Image.Image, device):
@@ -123,9 +131,10 @@ def create_transforms():
 @app.on_event("startup")
 async def startup_event():
     """Инициализация при запуске сервера."""
-    global model_op, transform_op
+    global model_op, model_sbert, reader, transform_op
     initialize_database(DB_PATH)
-    model_op = setup_model(MODEL_DIR, MODEL_NAME)
+    model_op, model_sbert = setup_models()
+    reader = easyocr.Reader(['en', 'ru'])  # Языки для OCR
     transform_op = create_transforms()
     logger.info("Сервер запущен и готов к работе.")
 
@@ -141,13 +150,17 @@ async def upload_image(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Невозможно обработать изображение")
 
     embedding = vectorize_image(model_op, transform_op, image, torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
+
+    ocr_result = reader.readtext(np.array(image), detail=0)
+    ocr_text = " ".join(ocr_result)
+
     image_path = os.path.join(IMAGE_DIR, file.filename)
 
     if not os.path.exists(IMAGE_DIR):
         os.makedirs(IMAGE_DIR)
 
     image.save(image_path)
-    save_embedding(DB_PATH, file.filename, embedding)
+    save_embedding(DB_PATH, file.filename, embedding, ocr_text)
 
     logger.info(f"Изображение '{file.filename}' загружено и обработано.")
     return JSONResponse({"status": "Image uploaded and processed."})
@@ -165,11 +178,19 @@ async def search_images(query: QueryRequest):
     with torch.no_grad():
         text_features = model_op.extract_text_features(text_tokens).cpu().numpy()
 
-    image_names, image_embeddings = get_image_embeddings(DB_PATH)
-    distances = cdist(text_features, image_embeddings, metric='cosine').flatten()
-    indices = np.argsort(distances)[:10]
+    text_embedding = model_sbert.encode(query.query)
 
-    results = [{"image_name": image_names[i], "similarity": 1 - distances[i]} for i in indices]
+    image_names, image_embeddings, ocr_texts = get_image_embeddings(DB_PATH)
+    distances_one_peace = cdist(text_features, image_embeddings, metric='cosine').flatten()
+
+    ocr_embeddings = model_sbert.encode(ocr_texts)
+    text_embedding = np.array(text_embedding).reshape(1, -1)
+    ocr_embeddings = np.array(ocr_embeddings)
+    distances_ocr = cdist(text_embedding, ocr_embeddings, metric='cosine').flatten()
+    combined_distances = (distances_one_peace + distances_ocr) / 2
+    indices = np.argsort(combined_distances)[:10]
+
+    results = [{"image_name": image_names[i], "similarity": 1 - combined_distances[i]} for i in indices]
     logger.info(f"Поиск по запросу '{query.query}' завершен. Найдено {len(results)} результатов.")
     return JSONResponse(results)
 
