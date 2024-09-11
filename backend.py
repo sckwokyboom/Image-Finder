@@ -17,7 +17,7 @@ from scipy.spatial.distance import cdist
 IMAGE_DIR = "resources/images"
 DB_PATH = "resources/images_metadata.db"
 MODEL_DIR = 'ONE-PEACE/'
-MODEL_NAME = 'C:\\Users\\sckwo\\PycharmProjects\\Image-RAG\\models\\one-peace.pt'
+MODEL_NAME = '/home/meno/models/easy_ocr/one-peace.pt'
 
 app = FastAPI()
 
@@ -32,7 +32,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def setup_models(model_dir, model_name):
+def setup_models(model_dir=MODEL_DIR, model_name=MODEL_NAME):
     """Загрузка модели ONE-PEACE с проверкой путей."""
     if not os.path.isdir(model_dir):
         raise FileNotFoundError(f'The directory "{model_dir}" does not exist')
@@ -84,6 +84,7 @@ def initialize_database(db_path):
     conn.commit()
     conn.close()
 
+
 def save_embedding(db_path, image_name, embedding, recognized_text):
     """Сохранение эмбеддингов и текста OCR в базу данных."""
     conn = sqlite3.connect(db_path)
@@ -134,7 +135,9 @@ async def startup_event():
     global model_op, model_sbert, reader, transform_op
     initialize_database(DB_PATH)
     model_op, model_sbert = setup_models()
-    reader = easyocr.Reader(['en', 'ru'])  # Языки для OCR
+    model_storage_dir = "/home/meno/models/easy_ocr/"
+    reader = easyocr.Reader(['en', 'ru'], model_storage_directory=model_storage_dir,
+                            user_network_directory=model_storage_dir)
     transform_op = create_transforms()
     logger.info("Сервер запущен и готов к работе.")
 
@@ -149,7 +152,8 @@ async def upload_image(file: UploadFile = File(...)):
         logger.error(f"Ошибка при обработке изображения: {str(e)}")
         raise HTTPException(status_code=400, detail="Невозможно обработать изображение")
 
-    embedding = vectorize_image(model_op, transform_op, image, torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
+    embedding = vectorize_image(model_op, transform_op, image,
+                                torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
 
     ocr_result = reader.readtext(np.array(image), detail=0)
     ocr_text = " ".join(ocr_result)
@@ -197,4 +201,5 @@ async def search_images(query: QueryRequest):
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
