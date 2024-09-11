@@ -93,7 +93,7 @@ async def handle_text(message: types.Message):
                     image_path = os.path.join("/resources/images", image_name)
 
                     if os.path.exists(image_path):
-                        media_group.append(InputMediaPhoto(types.InputFile(image_path),
+                        media_group.append(InputMediaPhoto(media=types.InputFile(image_path),
                                                            caption=f"Похожесть: {result['similarity']:.4f}"))
 
                 if media_group:
