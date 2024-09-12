@@ -118,24 +118,30 @@ async def handle_image(message: types.Message):
         file_info = await bot.get_file(photo.file_id)
         file_path = file_info.file_path
 
-        # Асинхронное скачивание изображения
+        # Получаем URL для скачивания изображения
         image_url = f'https://api.telegram.org/file/bot{API_TOKEN}/{file_path}'
-        async with aiohttp.ClientSession() as session:
-            image_content = await fetch_image(session, image_url)
-            if not image_content:
-                await message.answer("Не удалось загрузить изображение.")
-                return
 
-        # Асинхронная отправка изображения на бэкенд
-        files = {'file': ('image.jpg', image_content)}
-        async with session.post(f"{API_URL}/upload-image/", data=files) as response:
-            if response.status == 200:
-                result = await response.json()
-                logger.info(f"Изображение успешно загружено на сервер: {file_path}")
-                await message.answer(result["status"])
-            else:
-                logger.error(f"Ошибка при отправке изображения на бэкенд: {response.status}")
-                await message.answer("Ошибка при загрузке изображения.")
+        # Открываем сессию для скачивания изображения
+        async with aiohttp.ClientSession() as session:
+            async with session.get(image_url) as image_response:
+                if image_response.status != 200:
+                    logger.error(f"Ошибка при загрузке изображения {file_path}")
+                    await message.answer("Не удалось загрузить изображение.")
+                    return
+
+                image_content = await image_response.read()
+
+                files = {'file': ('image.jpg', image_content)}
+
+                # Отправляем изображение на бэкенд
+                async with session.post(f"{API_URL}/upload-image/", data=files) as response:
+                    if response.status == 200:
+                        logger.info(f"Изображение успешно загружено на сервер: {file_path}")
+                        response_json = await response.json()
+                        await message.answer(response_json.get("status", "Изображение загружено успешно."))
+                    else:
+                        logger.error(f"Ошибка при отправке изображения на бэкенд: {response.status}")
+                        await message.answer("Ошибка при загрузке изображения.")
     except Exception as e:
         logger.exception("Произошла ошибка при обработке изображения.")
         await message.answer("Произошла ошибка при обработке изображения.")
