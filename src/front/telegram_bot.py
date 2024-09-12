@@ -20,6 +20,11 @@ class ThrottlingMiddleware(BaseMiddleware):
         super().__init__()
 
     async def __call__(self, handler, event: Message, data):
+        # Проверяем, является ли событие сообщением и содержит ли оно from_user
+        if not isinstance(event, Message) or not event.from_user:
+            logger.warning("Получено событие без from_user.")
+            return await handler(event, data)
+
         current_time = asyncio.get_event_loop().time()
         user_id = event.from_user.id
 
@@ -80,6 +85,9 @@ async def fetch_image(session, url):
 # Обработка неподдерживаемых форматов
 @dp.message(F.document | F.sticker | F.audio | F.video)
 async def handle_unsupported_content(message: types.Message):
+    if not message.from_user:
+        logger.warning("Получено некорректное сообщение без пользователя.")
+        return
     logger.info(f"Неподдерживаемый формат от пользователя {message.from_user.id}")
     await message.answer("Этот формат не поддерживается. Отправьте текст или изображение.")
 
@@ -100,6 +108,10 @@ async def anti_flood(*args, **kwargs):
 # Обработка изображений
 @dp.message(F.photo)
 async def handle_image(message: types.Message):
+    if not message.from_user:
+        logger.warning("Получено сообщение без пользователя.")
+        return
+
     logger.info(f"Получено изображение от пользователя {message.from_user.id}")
     try:
         photo = message.photo[-1]  # Берём фото с наибольшим разрешением
@@ -132,6 +144,9 @@ async def handle_image(message: types.Message):
 # Обработка текстовых запросов
 @dp.message(F.text)
 async def handle_text(message: types.Message):
+    if not message.from_user:
+        logger.warning("Получено сообщение без пользователя.")
+        return
     logger.info(f"Получен текстовый запрос от пользователя {message.from_user.id}: {message.text}")
     try:
         query = message.text
