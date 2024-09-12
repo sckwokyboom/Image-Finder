@@ -14,7 +14,7 @@ from sentence_transformers import SentenceTransformer
 from torchvision import transforms
 from scipy.spatial.distance import cdist
 
-IMAGE_DIR = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/images")
+IMAGE_DIR = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/val2017")
 DB_PATH = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/images_metadata.db")
 MODEL_DIR = 'ONE-PEACE/'
 MODEL_NAME = '/home/meno/models/one-peace.pt'
@@ -142,6 +142,18 @@ async def startup_event():
     logger.info("Сервер запущен и готов к работе.")
 
 
+def get_next_image_number(image_dir):
+    """Функция для получения следующего номера изображения на основе существующих файлов."""
+    existing_files = os.listdir(image_dir)
+    if not existing_files:
+        return 0
+
+    image_numbers = [int(f.split('.')[0]) for f in existing_files if f.split('.')[0].isdigit()]
+    if not image_numbers:
+        return 0
+
+    return max(image_numbers) + 1
+
 @app.post("/upload-image/")
 async def upload_image(file: UploadFile = File(...)):
     """Загрузка изображения и сохранение его эмбеддингов."""
@@ -155,19 +167,22 @@ async def upload_image(file: UploadFile = File(...)):
     embedding = vectorize_image(model_op, transform_op, image,
                                 torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
 
+
     ocr_result = reader.readtext(np.array(image), detail=0)
     ocr_text = " ".join(ocr_result)
 
-    image_path = os.path.join(IMAGE_DIR, file.filename)
+    next_image_number = get_next_image_number(IMAGE_DIR)
+    new_image_name = f"{next_image_number:05d}.jpg"
+    image_path = os.path.join(IMAGE_DIR, new_image_name)
 
     if not os.path.exists(IMAGE_DIR):
         os.makedirs(IMAGE_DIR)
 
     image.save(image_path)
-    save_embedding(DB_PATH, file.filename, embedding, ocr_text)
+    save_embedding(DB_PATH, new_image_name, embedding, ocr_text)
 
-    logger.info(f"Изображение '{file.filename}' загружено и обработано.")
-    return JSONResponse({"status": "Image uploaded and processed."})
+    logger.info(f"Изображение '{image_path}' загружено и обработано.")
+    return JSONResponse({"status": "Отправленное изображение сохранено в общую базу данных и обработано."})
 
 
 class QueryRequest(BaseModel):
