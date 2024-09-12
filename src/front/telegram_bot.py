@@ -11,6 +11,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import InputMediaPhoto, Message
 from dotenv import load_dotenv
 import aiohttp
+import requests
 
 
 class ThrottlingMiddleware(BaseMiddleware):
@@ -120,28 +121,24 @@ async def handle_image(message: types.Message):
 
         # Получаем URL для скачивания изображения
         image_url = f'https://api.telegram.org/file/bot{API_TOKEN}/{file_path}'
+        image_response = requests.get(image_url)
 
-        # Открываем сессию для скачивания изображения
-        async with aiohttp.ClientSession() as session:
-            async with session.get(image_url) as image_response:
-                if image_response.status != 200:
-                    logger.error(f"Ошибка при загрузке изображения {file_path}")
-                    await message.answer("Не удалось загрузить изображение.")
-                    return
+        # Проверка успешности скачивания
+        if image_response.status_code != 200:
+            logger.error(f"Ошибка при загрузке изображения {file_path}")
+            await message.answer("Не удалось загрузить изображение.")
+            return
 
-                image_content = await image_response.read()
+        files = {'file': ('image.jpg', image_response.content)}
 
-                files = {'file': ('image.jpg', image_content)}
-
-                # Отправляем изображение на бэкенд
-                async with session.post(f"{API_URL}/upload-image/", data=files) as response:
-                    if response.status == 200:
-                        logger.info(f"Изображение успешно загружено на сервер: {file_path}")
-                        response_json = await response.json()
-                        await message.answer(response_json.get("status", "Изображение загружено успешно."))
-                    else:
-                        logger.error(f"Ошибка при отправке изображения на бэкенд: {response.status}")
-                        await message.answer("Ошибка при загрузке изображения.")
+        # Отправляем изображение на бэкенд
+        response = requests.post(f"{API_URL}/upload-image/", files=files)
+        if response.status_code == 200:
+            logger.info(f"Изображение успешно загружено на сервер: {file_path}")
+            await message.answer(response.json()["status"])
+        else:
+            logger.error(f"Ошибка при отправке изображения на бэкенд: {response.status_code}")
+            await message.answer("Ошибка при загрузке изображения.")
     except Exception as e:
         logger.exception("Произошла ошибка при обработке изображения.")
         await message.answer("Произошла ошибка при обработке изображения.")
