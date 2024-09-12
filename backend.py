@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 from torchvision import transforms
 from scipy.spatial.distance import cdist
+from deep_translator import GoogleTranslator
 
 IMAGE_DIR = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/val2017")
 DB_PATH = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/images_metadata.db")
@@ -30,6 +31,12 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+
+def translate_to_english(text):
+    translator = GoogleTranslator(source='ru', target='en')
+    translated_text = translator.translate(text)
+    return translated_text
 
 
 def setup_models(model_dir=MODEL_DIR, model_name=MODEL_NAME):
@@ -154,6 +161,7 @@ def get_next_image_number(image_dir):
 
     return max(image_numbers) + 1
 
+
 @app.post("/upload-image/")
 async def upload_image(file: UploadFile = File(...)):
     """Загрузка изображения и сохранение его эмбеддингов."""
@@ -166,7 +174,6 @@ async def upload_image(file: UploadFile = File(...)):
 
     embedding = vectorize_image(model_op, transform_op, image,
                                 torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
-
 
     ocr_result = reader.readtext(np.array(image), detail=0)
     ocr_text = " ".join(ocr_result)
@@ -193,7 +200,10 @@ class QueryRequest(BaseModel):
 async def search_images(query: QueryRequest):
     """Поиск изображений по запросу."""
     logger.info(f"Текстовый запрос получен:{query.query}")
-    text_tokens = model_op.process_text([query.query])
+    translated_query = translate_to_english(query.query)
+    logger.info(f"Запрос переведен на английский: {translated_query}")
+
+    text_tokens = model_op.process_text([translated_query])
     with torch.no_grad():
         text_features = model_op.extract_text_features(text_tokens).cpu().numpy()
 
