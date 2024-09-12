@@ -97,7 +97,8 @@ async def handle_unsupported_content(message: types.Message):
 @dp.message(Command('start'))
 async def send_welcome(message: types.Message):
     logger.info(f"Пользователь {message.from_user.id} отправил команду /start")
-    await message.answer("Привет! Отправь изображение для загрузки или текст для поиска.")
+    await message.answer(
+        "Привет! Отправь текстовый запрос на русском или английском для поиска по внутренней базе фотографий или отправь изображение для добавления его во внутреннюю базу данных бота (это изображение станет общедоступным для всех пользователей бота).")
 
 
 # Ограничение частоты запросов
