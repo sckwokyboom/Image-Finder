@@ -12,3 +12,4 @@ requests
 deep_translator
 aiohttp
 deepface
+tf-keras
