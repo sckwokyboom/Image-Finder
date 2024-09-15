@@ -183,6 +183,20 @@ def get_next_image_number(image_dir):
 
     return max(image_numbers) + 1
 
+def get_image_embeddings_with_celebrity(db_path):
+    """Получение всех эмбеддингов изображений, текстов OCR и имен знаменитостей из базы данных."""
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('SELECT image_name, embedding, recognized_text, celebrity_names FROM image_embeddings')
+    results = cursor.fetchall()
+    conn.close()
+
+    image_names = [row[0] for row in results]
+    embeddings = [np.frombuffer(row[1], dtype=np.float32) for row in results]
+    ocr_texts = [row[2] for row in results]
+    celebrity_names = [row[3] for row in results]
+
+    return image_names, np.vstack(embeddings), ocr_texts, celebrity_names
 
 @app.post("/upload-image/")
 async def upload_image(file: UploadFile = File(...)):
@@ -202,6 +216,7 @@ async def upload_image(file: UploadFile = File(...)):
     ocr_text = ocr_result.strip()
 
     celebrity_names = recognize_celebrities(image)
+    logger.info(f"Знаменитости, распознанные на изображении: {', '.join(celebrity_names)}")
 
     next_image_number = get_next_image_number(IMAGE_DIR)
     new_image_name = f"{next_image_number:05d}.jpg"
@@ -224,7 +239,7 @@ class QueryRequest(BaseModel):
 @app.post("/search/")
 async def search_images(query: QueryRequest):
     """Поиск изображений по запросу."""
-    logger.info(f"Текстовый запрос получен:{query.query}")
+    logger.info(f"Текстовый запрос получен: {query.query}")
     translated_query = translate_to_english(query.query)
     logger.info(f"Запрос переведен на английский: {translated_query}")
 
@@ -234,16 +249,27 @@ async def search_images(query: QueryRequest):
 
     text_embedding = model_sbert.encode(query.query)
 
-    image_names, image_embeddings, ocr_texts = get_image_embeddings(DB_PATH)
+    # Получаем эмбеддинги изображений, OCR текстов и имен знаменитостей
+    image_names, image_embeddings, ocr_texts, celebrity_names = get_image_embeddings_with_celebrity(DB_PATH)
+
+    # Рассчитываем расстояния между запросом и эмбеддингами изображений
     distances_one_peace = cdist(text_features, image_embeddings, metric='cosine').flatten()
 
+    # Рассчитываем расстояния между запросом и текстами OCR
     ocr_embeddings = model_sbert.encode(ocr_texts)
     text_embedding = np.array(text_embedding).reshape(1, -1)
     ocr_embeddings = np.array(ocr_embeddings)
     distances_ocr = cdist(text_embedding, ocr_embeddings, metric='cosine').flatten()
-    combined_distances = (distances_one_peace + distances_ocr) / 2
+
+    # Рассчитываем расстояния между запросом и именами знаменитостей
+    celebrity_embeddings = model_sbert.encode(celebrity_names)
+    distances_celebrities = cdist(text_embedding, celebrity_embeddings, metric='cosine').flatten()
+
+    # Комбинируем расстояния (по изображениям, текстам и знаменитостям)
+    combined_distances = (distances_one_peace + distances_ocr + distances_celebrities) / 3
     indices = np.argsort(combined_distances)[:10]
 
+    # Формируем результаты поиска
     results = [{"image_name": image_names[i], "similarity": 1 - combined_distances[i]} for i in indices]
     logger.info(f"Поиск по запросу '{query.query}' завершен. Найдено {len(results)} результатов.")
     return JSONResponse(results)
