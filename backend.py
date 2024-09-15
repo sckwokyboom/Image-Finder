@@ -1,7 +1,7 @@
 import sys
 import os
 
-import easyocr
+import pytesseract
 import torch
 import sqlite3
 import numpy as np
@@ -32,6 +32,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Настройка pytesseract
+pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'  # Укажите путь к исполняемому файлу tesseract
 
 def translate_to_english(text):
     translator = GoogleTranslator(source='ru', target='en')
@@ -139,12 +141,9 @@ def create_transforms():
 @app.on_event("startup")
 async def startup_event():
     """Инициализация при запуске сервера."""
-    global model_op, model_sbert, reader, transform_op
+    global model_op, model_sbert, transform_op
     initialize_database(DB_PATH)
     model_op, model_sbert = setup_models()
-    model_storage_dir = "/home/meno/models/easy_ocr/"
-    reader = easyocr.Reader(['en', 'ru'], model_storage_directory=model_storage_dir,
-                            user_network_directory=model_storage_dir)
     transform_op = create_transforms()
     logger.info("Сервер запущен и готов к работе.")
 
@@ -175,8 +174,9 @@ async def upload_image(file: UploadFile = File(...)):
     embedding = vectorize_image(model_op, transform_op, image,
                                 torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
 
-    ocr_result = reader.readtext(np.array(image), detail=0)
-    ocr_text = " ".join(ocr_result)
+    # Использование pytesseract для распознавания текста
+    ocr_result = pytesseract.image_to_string(image, lang='eng+rus')
+    ocr_text = ocr_result.strip()
 
     next_image_number = get_next_image_number(IMAGE_DIR)
     new_image_name = f"{next_image_number:05d}.jpg"
