@@ -1,7 +1,7 @@
 torch
 numpy
 annoy
-easyocr
+pytesseract
 sentence_transformers
 python-dotenv
 aiogram
@@ -11,3 +11,4 @@ uvicorn~=0.30.6
 requests
 deep_translator
 aiohttp
+deepface

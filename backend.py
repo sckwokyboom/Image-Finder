@@ -14,6 +14,7 @@ from sentence_transformers import SentenceTransformer
 from torchvision import transforms
 from scipy.spatial.distance import cdist
 from deep_translator import GoogleTranslator
+from deepface import DeepFace
 
 IMAGE_DIR = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/val2017")
 DB_PATH = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/images_metadata.db")
@@ -35,10 +36,31 @@ logger = logging.getLogger(__name__)
 # Настройка pytesseract
 pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'  # Укажите путь к исполняемому файлу tesseract
 
+
 def translate_to_english(text):
     translator = GoogleTranslator(source='ru', target='en')
     translated_text = translator.translate(text)
     return translated_text
+
+
+def recognize_celebrities(image: Image.Image):
+    """Распознавание всех знаменитостей на изображении с помощью DeepFace."""
+    try:
+        # Преобразуем изображение в массив numpy
+        image_np = np.array(image)
+
+        # Анализ всех лиц на изображении
+        results = DeepFace.analyze(image_np, actions=['identity'], detector_backend='opencv', enforce_detection=False)
+
+        # Если результат содержит список лиц
+        if isinstance(results, list):
+            # Возвращаем список идентифицированных знаменитостей для каждого лица
+            return [result.get('identity', 'Unknown') for result in results]
+        else:
+            return [results.get('identity', 'Unknown')]
+    except Exception as e:
+        print(f"Ошибка распознавания лиц: {e}")
+        return []
 
 
 def setup_models(model_dir=MODEL_DIR, model_name=MODEL_NAME):
@@ -87,21 +109,22 @@ def initialize_database(db_path):
             image_name TEXT PRIMARY KEY,
             embedding BLOB,
             recognized_text TEXT,
-            text_embedding BLOB
+            text_embedding BLOB,
+            celebrity_names TEXT
         )
     ''')
     conn.commit()
     conn.close()
 
 
-def save_embedding(db_path, image_name, embedding, recognized_text):
+def save_embedding(db_path, image_name, embedding, recognized_text, celebrity_names):
     """Сохранение эмбеддингов и текста OCR в базу данных."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT OR REPLACE INTO image_embeddings (image_name, embedding, recognized_text)
-        VALUES (?, ?, ?)
-    ''', (image_name, embedding.tobytes(), recognized_text))
+        INSERT OR REPLACE INTO image_embeddings (image_name, embedding, recognized_text, celebrity_names)
+        VALUES (?, ?, ?, ?)
+    ''', (image_name, embedding.tobytes(), recognized_text, ", ".join(celebrity_names)))
     conn.commit()
     conn.close()
 
@@ -178,6 +201,8 @@ async def upload_image(file: UploadFile = File(...)):
     ocr_result = pytesseract.image_to_string(image, lang='eng+rus')
     ocr_text = ocr_result.strip()
 
+    celebrity_names = recognize_celebrities(image)
+
     next_image_number = get_next_image_number(IMAGE_DIR)
     new_image_name = f"{next_image_number:05d}.jpg"
     image_path = os.path.join(IMAGE_DIR, new_image_name)
@@ -186,7 +211,7 @@ async def upload_image(file: UploadFile = File(...)):
         os.makedirs(IMAGE_DIR)
 
     image.save(image_path)
-    save_embedding(DB_PATH, new_image_name, embedding, ocr_text)
+    save_embedding(DB_PATH, new_image_name, embedding, ocr_text, celebrity_names)
 
     logger.info(f"Изображение '{image_path}' загружено и обработано.")
     return JSONResponse({"status": "Отправленное изображение сохранено в общую базу данных и обработано."})
