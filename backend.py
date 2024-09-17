@@ -288,7 +288,7 @@ async def search_images(query: QueryRequest):
     distances_celebrities = cdist(query_text_embedding, celebrity_embeddings, metric='cosine').flatten()
 
     if text_description_embeddings:
-        text_description_embeddings = np.array(text_description_embeddings).reshape(1, -1)
+        # text_description_embeddings = np.array(text_description_embeddings).reshape(1, -1)
         distances_descriptions = cdist(query_text_embedding, text_description_embeddings,
                                        metric='cosine').flatten()
     else:
