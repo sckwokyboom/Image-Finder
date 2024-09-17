@@ -126,7 +126,7 @@ def save_embedding(db_path, image_name, embedding, recognized_text, celebrity_na
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT OR REPLACE INTO image_embeddings (image_name, embedding, recognized_text, celebrity_names, text_description, text_description_embedding)
+        INSERT OR REPLACE INTO image_embeddings (image_name, op_embedding, recognized_text, celebrity_names, text_description, text_description_embedding)
         VALUES (?, ?, ?, ?, ?, ?)
     ''', (
         image_name,
