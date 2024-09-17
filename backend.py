@@ -289,6 +289,7 @@ async def search_images(query: QueryRequest):
 
     if text_description_embeddings:
         # text_description_embeddings = np.array(text_description_embeddings).reshape(1, -1)
+        text_description_embeddings = np.atleast_2d(text_description_embeddings)
         distances_descriptions = cdist(query_text_embedding, text_description_embeddings,
                                        metric='cosine').flatten()
     else:
