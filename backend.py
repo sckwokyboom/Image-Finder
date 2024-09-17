@@ -268,7 +268,7 @@ async def search_images(query: QueryRequest):
     with torch.no_grad():
         text_features = model_op.extract_text_features(text_tokens).cpu().numpy()
 
-    recognized_text_embedding = model_sbert.encode(query.query)
+    query_text_embedding = model_sbert.encode(query.query)
 
     # Получаем эмбеддинги изображений, OCR текстов и имен знаменитостей
     image_names, image_embeddings, ocr_texts, celebrity_names, text_description_embeddings = get_image_embeddings_with_celebrity(
@@ -279,18 +279,18 @@ async def search_images(query: QueryRequest):
 
     # Рассчитываем расстояния между запросом и текстами OCR
     ocr_embeddings = model_sbert.encode(ocr_texts)
-    recognized_text_embedding = np.array(recognized_text_embedding).reshape(1, -1)
+    query_text_embedding = np.array(query_text_embedding).reshape(1, -1)
     ocr_embeddings = np.array(ocr_embeddings)
-    distances_ocr = cdist(recognized_text_embedding, ocr_embeddings, metric='cosine').flatten()
+    distances_ocr = cdist(query_text_embedding, ocr_embeddings, metric='cosine').flatten()
 
     # Рассчитываем расстояния между запросом и именами знаменитостей
     celebrity_embeddings = model_sbert.encode(celebrity_names)
-    distances_celebrities = cdist(recognized_text_embedding, celebrity_embeddings, metric='cosine').flatten()
+    distances_celebrities = cdist(query_text_embedding, celebrity_embeddings, metric='cosine').flatten()
 
     if text_description_embeddings:
         text_description_embeddings = np.array(
-            [embedding for embedding in text_description_embeddings if embedding is not None])
-        distances_descriptions = cdist(recognized_text_embedding, text_description_embeddings,
+            embedding for embedding in text_description_embeddings if embedding is not None)
+        distances_descriptions = cdist(query_text_embedding, text_description_embeddings,
                                        metric='cosine').flatten()
     else:
         distances_descriptions = np.zeros(len(image_names))
