@@ -114,6 +114,7 @@ async def handle_image(message: types.Message):
         logger.warning("Получено сообщение без пользователя.")
         return
 
+    description = message.caption
     logger.info(f"Получено изображение от пользователя {message.from_user.id}")
     try:
         photo = message.photo[-1]  # Берём фото с наибольшим разрешением
@@ -131,9 +132,13 @@ async def handle_image(message: types.Message):
             return
 
         files = {'file': ('image.jpg', image_response.content)}
+        data = {}
+
+        if description:
+            data['description'] = description
 
         # Отправляем изображение на бэкенд
-        response = requests.post(f"{API_URL}/upload-image/", files=files)
+        response = requests.post(f"{API_URL}/upload-image/", files=files, data=data)
         if response.status_code == 200:
             logger.info(f"Изображение успешно загружено на сервер: {file_path}")
             await message.answer(response.json()["status"])
