@@ -216,7 +216,7 @@ def get_image_embeddings_with_celebrity(db_path):
 
 
 @app.post("/upload-image/")
-async def upload_image(file: UploadFile = File(...)):
+async def upload_image(file: UploadFile = File(...), description: Optional[str] = None):
     """Загрузка изображения и сохранение его эмбеддингов."""
     logger.info("Изображение получено.")
     try:
