@@ -282,23 +282,23 @@ async def search_images(query: QueryRequest):
                                                metric='cosine').flatten()
             except Exception as e:
                 logger.error(f"Ошибка при подсчёте расстояния между эмбеддингами текстового описания и запроса: {e}")
-                distances_descriptions = np.zeros(len(image_names))
+                distances_descriptions = np.ones(len(image_names))
         else:
             logger.warning("Все текстовые описания равны None (пустые).")
-            distances_descriptions = np.zeros(len(image_names))
+            distances_descriptions = np.ones(len(image_names))
     else:
         logger.warning("Не было найдено опциональных текстовых описаний.")
-        distances_descriptions = np.zeros(len(image_names))
+        distances_descriptions = np.ones(len(image_names))
 
     logger.info(f"Максимально возможный score для каждого критерия: 1.0")
     for i, image_name in enumerate(image_names):
         logger.info(f"Изображение: {image_name}")
         logger.info(f"  Балл похожести по ONE-PEACE: {1 - distances_one_peace[i]}")
         logger.info(f"  Балл похожести по тексту OCR: {1 - distances_ocr[i]}")
-        if text_description_embeddings[i] is not None and text_description_embeddings[i].size > 0:
-            logger.info(f"  Балл похожести по текстовому описанию: {1 - distances_descriptions[i]}")
-        else:
-            logger.info("  Описание текста недоступно для данного изображения.")
+        # if text_description_embeddings[i] is not None and text_description_embeddings[i].size > 0:
+        logger.info(f"  Балл похожести по текстовому описанию: {1 - distances_descriptions[i]}")
+        # else:
+        #     logger.info("  Описание текста недоступно для данного изображения.")
 
     # Комбинируем расстояния (по изображениям, текстам и знаменитостям)
     combined_distances = (distances_one_peace + distances_ocr + distances_descriptions) / 3
