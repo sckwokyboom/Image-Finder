@@ -27,6 +27,7 @@ app = FastAPI()
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    datefmt='%Y-%m-%d %H:%M:%S',
     handlers=[
         logging.FileHandler("bot.log", encoding="utf-8"),
         logging.StreamHandler(sys.stdout)
@@ -42,26 +43,6 @@ def translate_to_english(text):
     translator = GoogleTranslator(source='ru', target='en')
     translated_text = translator.translate(text)
     return translated_text
-
-
-def recognize_celebrities(image: Image.Image):
-    """Распознавание всех знаменитостей на изображении с помощью DeepFace."""
-    try:
-        # Преобразуем изображение в массив numpy
-        image_np = np.array(image)
-
-        # Анализ всех лиц на изображении
-        results = DeepFace.analyze(image_np, actions=['identity'], detector_backend='opencv', enforce_detection=False)
-
-        # Если результат содержит список лиц
-        if isinstance(results, list):
-            # Возвращаем список идентифицированных знаменитостей для каждого лица
-            return [result.get('identity', 'Unknown') for result in results]
-        else:
-            return [results.get('identity', 'Unknown')]
-    except Exception as e:
-        print(f"Ошибка распознавания лиц: {e}")
-        return []
 
 
 def setup_models(model_dir=MODEL_DIR, model_name=MODEL_NAME):
@@ -92,14 +73,16 @@ def setup_models(model_dir=MODEL_DIR, model_name=MODEL_NAME):
     os.chdir(one_peace_dir)
     logger.info(f'Новая рабочая директория: {os.getcwd()}')
     model = from_pretrained(model_name, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
-
+    logger.info("ONE-PEACE был успешно загружен")
     logger.info("Загрузка модели SBERT")
     model_sbert = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+    logger.info("SBERT был успешно загружен")
     return model, model_sbert
 
 
 def initialize_database(db_path):
     """Создание базы данных, если она не существует."""
+    logger.info("Инициализация базы данных...")
     if not os.path.exists(os.path.dirname(db_path)):
         os.makedirs(os.path.dirname(db_path))
 
@@ -111,28 +94,27 @@ def initialize_database(db_path):
             op_embedding BLOB,
             recognized_text TEXT,
             recognized_text_embedding BLOB,
-            celebrity_names TEXT,
             text_description TEXT,
             text_description_embedding BLOB
         )
     ''')
     conn.commit()
     conn.close()
+    logger.info("Инициализация базы данных завершена")
 
 
-def save_embedding(db_path, image_name, embedding, recognized_text, celebrity_names, text_description=None,
+def save_embedding(db_path, image_name, embedding, recognized_text, text_description=None,
                    text_description_embedding=None):
     """Сохранение эмбеддингов и текста OCR в базу данных."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT OR REPLACE INTO image_embeddings (image_name, op_embedding, recognized_text, celebrity_names, text_description, text_description_embedding)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO image_embeddings (image_name, op_embedding, recognized_text, text_description, text_description_embedding)
+        VALUES (?, ?, ?, ?, ?)
     ''', (
         image_name,
         embedding.tobytes(),
         recognized_text,
-        ", ".join(celebrity_names),
         text_description,
         text_description_embedding.tobytes() if text_description_embedding is not None else None
 
@@ -196,23 +178,22 @@ def get_next_image_number(image_dir):
     return max(image_numbers) + 1
 
 
-def get_image_embeddings_with_celebrity(db_path):
+def get_image_embeddings(db_path):
     """Получение всех эмбеддингов изображений, текстов OCR, описаний и имен знаменитостей из базы данных."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute(
-        'SELECT image_name, op_embedding, recognized_text, celebrity_names, text_description_embedding FROM image_embeddings')
+        'SELECT image_name, op_embedding, recognized_text, text_description_embedding FROM image_embeddings')
     results = cursor.fetchall()
     conn.close()
 
     image_names = [row[0] for row in results]
     embeddings = [np.frombuffer(row[1], dtype=np.float32) for row in results]
     ocr_texts = [row[2] for row in results]
-    celebrity_names = [row[3] for row in results]
     text_description_embeddings = [np.frombuffer(row[4], dtype=np.float32) if row[4] is not None else None for row in
                                    results]
 
-    return image_names, np.vstack(embeddings), ocr_texts, celebrity_names, text_description_embeddings
+    return image_names, np.vstack(embeddings), ocr_texts, text_description_embeddings
 
 
 @app.post("/upload-image/")
@@ -231,13 +212,17 @@ async def upload_image(file: UploadFile = File(...), description: Optional[str] 
     # Использование pytesseract для распознавания текста
     ocr_result = pytesseract.image_to_string(image, lang='eng+rus')
     ocr_text = ocr_result.strip()
-
-    celebrity_names = recognize_celebrities(image)
-    logger.info(f"Знаменитости, распознанные на изображении: {', '.join(celebrity_names)}")
+    if ocr_text:
+        logging.info(f"Распознанный текст: {ocr_text}")
+    else:
+        logging.warning("Не удалось распознать текст на изображении")
 
     description_embedding = None
     if description:
+        logging.info(f"Получено описание изображения: {description}")
         description_embedding = model_sbert.encode(description)
+    else:
+        logging.warning("Описание изображения отсутствует")
 
     next_image_number = get_next_image_number(IMAGE_DIR)
     new_image_name = f"{next_image_number:05d}.jpg"
@@ -247,7 +232,7 @@ async def upload_image(file: UploadFile = File(...), description: Optional[str] 
         os.makedirs(IMAGE_DIR)
 
     image.save(image_path)
-    save_embedding(DB_PATH, new_image_name, embedding, ocr_text, celebrity_names, description, description_embedding)
+    save_embedding(DB_PATH, new_image_name, embedding, ocr_text, description, description_embedding)
 
     logger.info(f"Изображение '{image_path}' загружено и обработано.")
     return JSONResponse({"status": "Отправленное изображение сохранено в общую базу данных и обработано."})
@@ -271,7 +256,8 @@ async def search_images(query: QueryRequest):
     query_text_embedding = model_sbert.encode(query.query)
 
     # Получаем эмбеддинги изображений, OCR текстов и имен знаменитостей
-    image_names, image_embeddings, ocr_texts, celebrity_names, text_description_embeddings = get_image_embeddings_with_celebrity(DB_PATH)
+    image_names, image_embeddings, ocr_texts, text_description_embeddings = get_image_embeddings(
+        DB_PATH)
 
     # Рассчитываем расстояния между запросом и эмбеддингами изображений
     distances_one_peace = cdist(text_features, image_embeddings, metric='cosine').flatten()
@@ -281,10 +267,6 @@ async def search_images(query: QueryRequest):
     query_text_embedding = np.array(query_text_embedding).reshape(1, -1)
     ocr_embeddings = np.array(ocr_embeddings)
     distances_ocr = cdist(query_text_embedding, ocr_embeddings, metric='cosine').flatten()
-
-    # Рассчитываем расстояния между запросом и именами знаменитостей
-    celebrity_embeddings = model_sbert.encode(celebrity_names)
-    distances_celebrities = cdist(query_text_embedding, celebrity_embeddings, metric='cosine').flatten()
 
     if text_description_embeddings:
         logger.info(f"Найдено {len(text_description_embeddings)} опциональных текстовых описаний.")
@@ -312,7 +294,6 @@ async def search_images(query: QueryRequest):
         logger.info(f"Изображение: {image_name}")
         logger.info(f"  Балл похожести по ONE-PEACE: {1 - distances_one_peace[i]}")
         logger.info(f"  Балл похожести по тексту OCR: {1 - distances_ocr[i]}")
-        logger.info(f"  Балл похожести по имени знаменитости: {1 - distances_celebrities[i]}")
         if text_description_embeddings:
             logger.info(f"  Балл похожести по текстовому описанию: {1 - distances_descriptions[i]}")
         else:
