@@ -271,8 +271,7 @@ async def search_images(query: QueryRequest):
     query_text_embedding = model_sbert.encode(query.query)
 
     # Получаем эмбеддинги изображений, OCR текстов и имен знаменитостей
-    image_names, image_embeddings, ocr_texts, celebrity_names, text_description_embeddings = get_image_embeddings_with_celebrity(
-        DB_PATH)
+    image_names, image_embeddings, ocr_texts, celebrity_names, text_description_embeddings = get_image_embeddings_with_celebrity(DB_PATH)
 
     # Рассчитываем расстояния между запросом и эмбеддингами изображений
     distances_one_peace = cdist(text_features, image_embeddings, metric='cosine').flatten()
@@ -288,12 +287,24 @@ async def search_images(query: QueryRequest):
     distances_celebrities = cdist(query_text_embedding, celebrity_embeddings, metric='cosine').flatten()
 
     if text_description_embeddings:
-        text_description_embeddings = np.array(text_description_embeddings)
-        text_description_embeddings = text_description_embeddings.reshape(-1, query_text_embedding.shape[1])
-        # text_description_embeddings = np.atleast_2d(text_description_embeddings)
-        distances_descriptions = cdist(query_text_embedding, text_description_embeddings,
-                                       metric='cosine').flatten()
+        logger.info(f"Найдено {len(text_description_embeddings)} опциональных текстовых описаний.")
+        text_description_embeddings = [emb for emb in text_description_embeddings if emb is not None]
+        if text_description_embeddings:
+            try:
+                text_description_embeddings = np.array(text_description_embeddings)
+                # Ensure 2D array by reshaping if necessary
+                if len(text_description_embeddings.shape) == 1:
+                    text_description_embeddings = text_description_embeddings.reshape(-1, query_text_embedding.shape[1])
+                distances_descriptions = cdist(query_text_embedding, text_description_embeddings,
+                                               metric='cosine').flatten()
+            except Exception as e:
+                logger.error(f"Ошибка при подсчёте расстояния между эмбеддингами текстового описания и запроса: {e}")
+                distances_descriptions = np.zeros(len(image_names))
+        else:
+            logger.warning("Все текстовые описания равны None (пустые).")
+            distances_descriptions = np.zeros(len(image_names))
     else:
+        logger.warning("Не было найдено опциональных текстовых описаний.")
         distances_descriptions = np.zeros(len(image_names))
 
     # Комбинируем расстояния (по изображениям, текстам и знаменитостям)
