@@ -115,9 +115,10 @@ async def handle_image(message: types.Message):
         return
 
     description = message.caption
-    logger.info(f"Получено изображение от пользователя {message.from_user.id}")
+    logger.info(f"Получено изображение от пользователя {message.from_user.id} с описанием: {description}")
     try:
         photo = message.photo[-1]  # Берём фото с наибольшим разрешением
+        logger.info(f"Получено фото с разрешением: {photo.width}x{photo.height}")
         file_info = await bot.get_file(photo.file_id)
         file_path = file_info.file_path
 
@@ -131,11 +132,16 @@ async def handle_image(message: types.Message):
             await message.answer("Не удалось загрузить изображение.")
             return
 
+        logger.info(f"Изображение успешно скачано: {file_path} (размер: {len(image_response.content)} байт)")
+
         files = {'file': ('image.jpg', image_response.content)}
         data = {}
 
         if description:
             data['description'] = description
+            logger.info(f"Описание передано на бэкенд: {description}")
+        else:
+            logger.warning("Описание к изображению отсутствует")
 
         # Отправляем изображение на бэкенд
         response = requests.post(f"{API_URL}/upload-image/", files=files, data=data)
