@@ -269,40 +269,40 @@ async def search_images(query: QueryRequest):
     ocr_embeddings = np.array(ocr_embeddings)
     distances_ocr = cdist(query_text_embedding, ocr_embeddings, metric='cosine').flatten()
 
+    distances_descriptions = np.ones(len(image_names))
+
     if text_description_embeddings:
-        logger.info(f"Найдено {len(text_description_embeddings)} опциональных текстовых описаний.")
-        text_description_embeddings = [emb for emb in text_description_embeddings if emb is not None]
-        if text_description_embeddings:
-            try:
-                text_description_embeddings = np.array(text_description_embeddings)
-                # Ensure 2D array by reshaping if necessary
-                if len(text_description_embeddings.shape) == 1:
-                    text_description_embeddings = text_description_embeddings.reshape(-1, query_text_embedding.shape[1])
-                distances_descriptions = cdist(query_text_embedding, text_description_embeddings,
-                                               metric='cosine').flatten()
-            except Exception as e:
-                logger.error(f"Ошибка при подсчёте расстояния между эмбеддингами текстового описания и запроса: {e}")
-                distances_descriptions = np.ones(len(image_names))
+        # Подготавливаем текстовые эмбеддинги только для тех изображений, у которых есть описание
+        valid_description_indices = [i for i, emb in enumerate(text_description_embeddings) if emb is not None]
+        valid_description_embeddings = [emb for emb in text_description_embeddings if emb is not None]
+        if valid_description_embeddings:
+            valid_description_embeddings = np.array(valid_description_embeddings)
+            if len(valid_description_embeddings.shape) == 1:
+                valid_description_embeddings = valid_description_embeddings.reshape(-1, query_text_embedding.shape[1])
+            valid_distances_descriptions = cdist(query_text_embedding, valid_description_embeddings,
+                                                 metric='cosine').flatten()
+
+            # Заполняем расстояния для тех изображений, у которых есть описание
+            for idx, valid_idx in enumerate(valid_description_indices):
+                distances_descriptions[valid_idx] = valid_distances_descriptions[idx]
         else:
             logger.warning("Все текстовые описания равны None (пустые).")
-            distances_descriptions = np.ones(len(image_names))
     else:
         logger.warning("Не было найдено опциональных текстовых описаний.")
-        distances_descriptions = np.ones(len(image_names))
-
-    logger.info(f"Максимально возможный score для каждого критерия: 1.0")
-    for i, image_name in enumerate(image_names):
-        logger.info(f"Изображение: {image_name}")
-        logger.info(f"  Балл похожести по ONE-PEACE: {1 - distances_one_peace[i]}")
-        logger.info(f"  Балл похожести по тексту OCR: {1 - distances_ocr[i]}")
-        # if text_description_embeddings[i] is not None and text_description_embeddings[i].size > 0:
-        logger.info(f"  Балл похожести по текстовому описанию: {1 - distances_descriptions[i]}")
-        # else:
-        #     logger.info("  Описание текста недоступно для данного изображения.")
 
     # Комбинируем расстояния (по изображениям, текстам и знаменитостям)
     combined_distances = (distances_one_peace + distances_ocr + distances_descriptions) / 3
     indices = np.argsort(combined_distances)[:10]
+
+    # Находим лучшее изображение
+    best_image_index = indices[0]
+    best_image_name = image_names[best_image_index]
+
+    # Логирование только для лучшего изображения
+    logger.info(f"Лучшее изображение: {best_image_name}")
+    logger.info(f"  Балл похожести по ONE-PEACE: {1 - distances_one_peace[best_image_index]}")
+    logger.info(f"  Балл похожести по тексту OCR: {1 - distances_ocr[best_image_index]}")
+    logger.info(f"  Балл похожести по текстовому описанию: {1 - distances_descriptions[best_image_index]}")
 
     # Формируем результаты поиска
     results = [{"image_name": image_names[i], "similarity": 1 - combined_distances[i]} for i in indices]
