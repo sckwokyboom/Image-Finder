@@ -295,7 +295,7 @@ async def search_images(query: QueryRequest):
         logger.info(f"Изображение: {image_name}")
         logger.info(f"  Балл похожести по ONE-PEACE: {1 - distances_one_peace[i]}")
         logger.info(f"  Балл похожести по тексту OCR: {1 - distances_ocr[i]}")
-        if text_description_embeddings[i]:
+        if text_description_embeddings[i] is not None and text_description_embeddings[i].size > 0:
             logger.info(f"  Балл похожести по текстовому описанию: {1 - distances_descriptions[i]}")
         else:
             logger.info("  Описание текста недоступно для данного изображения.")
