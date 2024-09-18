@@ -9,12 +9,12 @@ import logging
 from PIL import Image
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
+from fastapi import Form
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 from torchvision import transforms
 from scipy.spatial.distance import cdist
 from deep_translator import GoogleTranslator
-from deepface import DeepFace
 from typing import Optional
 
 IMAGE_DIR = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/val2017")
@@ -197,7 +197,7 @@ def get_image_embeddings(db_path):
 
 
 @app.post("/upload-image/")
-async def upload_image(file: UploadFile = File(...), description: Optional[str] = None):
+async def upload_image(file: UploadFile = File(...), description: Optional[str] = Form(None)):
     """Загрузка изображения и сохранение его эмбеддингов."""
     logger.info("Изображение получено.")
     try:

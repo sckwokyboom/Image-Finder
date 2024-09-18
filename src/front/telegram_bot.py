@@ -144,7 +144,7 @@ async def handle_image(message: types.Message):
             logger.warning("Описание к изображению отсутствует")
 
         # Отправляем изображение на бэкенд
-        response = requests.post(f"{API_URL}/upload-image/", files=files, data=data)
+        response = requests.post(f"{API_URL}/upload-image/", data=data, files=files)
         if response.status_code == 200:
             logger.info(f"Изображение успешно загружено на сервер: {file_path}")
             await message.answer(response.json()["status"])
