@@ -307,6 +307,17 @@ async def search_images(query: QueryRequest):
         logger.warning("Не было найдено опциональных текстовых описаний.")
         distances_descriptions = np.zeros(len(image_names))
 
+    logger.info(f"Максимально возможный score для каждого критерия: 1.0")
+    for i, image_name in enumerate(image_names):
+        logger.info(f"Изображение: {image_name}")
+        logger.info(f"  Балл похожести по ONE-PEACE: {1 - distances_one_peace[i]}")
+        logger.info(f"  Балл похожести по тексту OCR: {1 - distances_ocr[i]}")
+        logger.info(f"  Балл похожести по имени знаменитости: {1 - distances_celebrities[i]}")
+        if text_description_embeddings:
+            logger.info(f"  Балл похожести по текстовому описанию: {1 - distances_descriptions[i]}")
+        else:
+            logger.info("  Описание текста недоступно для данного изображения.")
+
     # Комбинируем расстояния (по изображениям, текстам и знаменитостям)
     combined_distances = (distances_one_peace + distances_ocr + distances_descriptions) / 3
     indices = np.argsort(combined_distances)[:10]
