@@ -144,7 +144,8 @@ def get_image_embeddings(db_path):
     textual_descriptions = [row[3] for row in results]
     textual_descriptions_embeddings = [np.frombuffer(row[4], dtype=np.float32) for row in results]
 
-    return image_names, np.vstack(embeddings), ocr_texts, textual_descriptions, textual_descriptions_embeddings
+    return image_names, np.vstack(embeddings), ocr_texts, textual_descriptions, np.vstack(
+        textual_descriptions_embeddings)
 
 
 def vectorize_image(model, transform, image: Image.Image, device):
