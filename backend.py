@@ -139,7 +139,8 @@ def get_image_embeddings(db_path):
     embeddings = [np.frombuffer(row[1], dtype=np.float32) for row in results]
     ocr_texts = [row[2] for row in results]
     textual_descriptions = [row[3] for row in results]
-    textual_descriptions_embeddings = [np.frombuffer(row[4], dtype=np.float32) for row in results]
+    textual_descriptions_embeddings = [np.frombuffer(row[4], dtype=np.float32) if row[4] is not None else None for row
+                                       in results]
 
     return image_names, np.vstack(embeddings), ocr_texts, textual_descriptions, np.vstack(
         textual_descriptions_embeddings)
