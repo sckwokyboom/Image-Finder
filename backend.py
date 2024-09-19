@@ -297,18 +297,32 @@ async def search_images(query: QueryRequest):
         logger.warning("Не было найдено опциональных текстовых описаний.")
 
     tokenized_corpus = [word_tokenize(text.lower()) for text in ocr_texts]
-    bm25 = BM25Okapi(tokenized_corpus)
+    tokenized_descriptions = [word_tokenize(desc.lower()) for desc in text_description_embeddings if desc]
+
+    full_corpus = tokenized_corpus + tokenized_descriptions
+    bm25 = BM25Okapi(full_corpus)
     tokenized_query = word_tokenize(translated_query.lower())
+
+    logger.info(f"Токенизированный запрос: {tokenized_query}")
+    logger.info(f"Количество документов в корпусе для BM25: {len(full_corpus)}")
+
     bm25_scores = bm25.get_scores(tokenized_query)
 
-    # Обработка NaN и бесконечных значений
     bm25_min = np.min(bm25_scores)
     bm25_max = np.max(bm25_scores)
-    # Проверка на одинаковые минимальные и максимальные значения
+
+    # Логирование значений BM25 перед нормализацией
+    logger.info(f"BM25 Scores: {bm25_scores}")
+    logger.info(f"BM25 Min: {bm25_min}, BM25 Max: {bm25_max}")
+
+    # Нормализуем BM25, если есть разница в значениях
     if bm25_max != bm25_min:
         bm25_scores = (bm25_scores - bm25_min) / (bm25_max - bm25_min)
     else:
-        bm25_scores = np.zeros_like(bm25_scores)  # Если min == max, все оценки будут 0
+        logger.warning("Минимальное и максимальное значения BM25 совпадают, нормализация не выполнена.")
+        bm25_scores = np.zeros_like(bm25_scores)
+
+    logger.info(f"BM25 Scores после нормализации: {bm25_scores}")
 
     # Комбинируем расстояния (по изображениям, текстам и знаменитостям)
     combined_distances = (distances_one_peace + distances_ocr + distances_descriptions + bm25_scores) / 4
