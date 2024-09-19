@@ -7,9 +7,8 @@ import sqlite3
 import numpy as np
 import logging
 from PIL import Image
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import JSONResponse
-from fastapi import Form
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 from torchvision import transforms
@@ -22,8 +21,8 @@ import nltk
 
 IMAGE_DIR = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/val2017")
 DB_PATH = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/images_metadata.db")
-MODEL_DIR = 'ONE-PEACE/'
-MODEL_NAME = '/home/meno/models/one-peace.pt'
+ONE_PEACE_GIT_REPO_DIR_PATH = 'ONE-PEACE/'
+ONE_PEACE_MODEL_PATH = '/home/meno/models/one-peace.pt'
 
 app = FastAPI()
 
@@ -38,9 +37,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Настройка pytesseract
-pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'  # Укажите путь к исполняемому файлу tesseract
-
 
 def translate_to_english(text):
     translator = GoogleTranslator(source='ru', target='en')
@@ -48,23 +44,23 @@ def translate_to_english(text):
     return translated_text
 
 
-def setup_models(model_dir=MODEL_DIR, model_name=MODEL_NAME):
+def setup_models():
     """Загрузка модели ONE-PEACE с проверкой путей."""
-    if not os.path.isdir(model_dir):
-        raise FileNotFoundError(f'The directory "{model_dir}" does not exist')
-    if not os.path.isfile(model_name):
-        raise FileNotFoundError(f'The model file "{model_name}" does not exist')
+    if not os.path.isdir(ONE_PEACE_GIT_REPO_DIR_PATH):
+        raise FileNotFoundError(f'The directory "{ONE_PEACE_GIT_REPO_DIR_PATH}" does not exist')
+    if not os.path.isfile(ONE_PEACE_MODEL_PATH):
+        raise FileNotFoundError(f'The model file "{ONE_PEACE_MODEL_PATH}" does not exist')
 
     # nltk.data.path.append('/home/meno/models/nltk_data/tokenizers/punkt')
     nltk.download('punkt_tab')
 
-    one_peace_dir = os.path.normpath(MODEL_DIR)
+    one_peace_dir = os.path.normpath(ONE_PEACE_GIT_REPO_DIR_PATH)
     if not os.path.isdir(one_peace_dir):
         err_msg = f'The dir "{one_peace_dir}" does not exist'
         logger.error(err_msg)
         raise ValueError(err_msg)
 
-    model_name = os.path.normpath(MODEL_NAME)
+    model_name = os.path.normpath(ONE_PEACE_MODEL_PATH)
     if not os.path.isfile(model_name):
         err_msg = f'The file "{model_name}" does not exist'
         logger.error(err_msg)
@@ -72,7 +68,7 @@ def setup_models(model_dir=MODEL_DIR, model_name=MODEL_NAME):
     sys.path.append(one_peace_dir)
     from one_peace.models import from_pretrained
 
-    logger.info("Загрузка модели ONE-PEACE")
+    logger.info("Загрузка модели ONE-PEACE...")
     current_workdir = os.getcwd()
     logger.info(f'Текущая рабочая директория: {current_workdir}')
 
@@ -80,9 +76,10 @@ def setup_models(model_dir=MODEL_DIR, model_name=MODEL_NAME):
     logger.info(f'Новая рабочая директория: {os.getcwd()}')
     model = from_pretrained(model_name, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
     logger.info("ONE-PEACE был успешно загружен")
-    logger.info("Загрузка модели SBERT")
+    logger.info("Загрузка модели SBERT...")
     model_sbert = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
     logger.info("SBERT был успешно загружен")
+    pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
     return model, model_sbert
 
 
@@ -188,23 +185,23 @@ def get_next_image_number(image_dir):
     return max(image_numbers) + 1
 
 
-def get_image_embeddings(db_path):
-    """Получение всех эмбеддингов изображений, текстов OCR, описаний и имен знаменитостей из базы данных."""
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute(
-        'SELECT image_name, op_embedding, recognized_text, text_description_embedding FROM image_embeddings')
-    results = cursor.fetchall()
-    conn.close()
-
-    image_names = [row[0] for row in results]
-    embeddings = [np.frombuffer(row[1], dtype=np.float32) for row in results]
-    # TODO: очень плохо с индексами тут работать, явно неправильно
-    ocr_texts = [row[2] for row in results]
-    text_description_embeddings = [np.frombuffer(row[3], dtype=np.float32) if row[3] is not None else None for row in
-                                   results]
-
-    return image_names, np.vstack(embeddings), ocr_texts, text_description_embeddings
+# def get_image_embeddings(db_path):
+#     """Получение всех эмбеддингов изображений, текстов OCR, описаний и имен знаменитостей из базы данных."""
+#     conn = sqlite3.connect(db_path)
+#     cursor = conn.cursor()
+#     cursor.execute(
+#         'SELECT image_name, op_embedding, recognized_text, text_description_embedding FROM image_embeddings')
+#     results = cursor.fetchall()
+#     conn.close()
+#
+#     image_names = [row[0] for row in results]
+#     embeddings = [np.frombuffer(row[1], dtype=np.float32) for row in results]
+#     # TODO: очень плохо с индексами тут работать, явно неправильно
+#     ocr_texts = [row[2] for row in results]
+#     text_description_embeddings = [np.frombuffer(row[3], dtype=np.float32) if row[3] is not None else None for row in
+#                                    results]
+#
+#     return image_names, np.vstack(embeddings), ocr_texts, text_description_embeddings
 
 
 @app.post("/upload-image/")
