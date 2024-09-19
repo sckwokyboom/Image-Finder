@@ -19,7 +19,6 @@ from typing import Optional
 from rank_bm25 import BM25Okapi
 from nltk.tokenize import word_tokenize
 import nltk
-nltk.download('punkt')
 
 IMAGE_DIR = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/val2017")
 DB_PATH = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/images_metadata.db")
@@ -56,6 +55,7 @@ def setup_models(model_dir=MODEL_DIR, model_name=MODEL_NAME):
     if not os.path.isfile(model_name):
         raise FileNotFoundError(f'The model file "{model_name}" does not exist')
 
+    nltk.download('punkt', '/home/meno/models/nltk_data')
     one_peace_dir = os.path.normpath(MODEL_DIR)
     if not os.path.isdir(one_peace_dir):
         err_msg = f'The dir "{one_peace_dir}" does not exist'
@@ -293,7 +293,6 @@ async def search_images(query: QueryRequest):
             logger.warning("Все текстовые описания равны None (пустые).")
     else:
         logger.warning("Не было найдено опциональных текстовых описаний.")
-
 
     tokenized_corpus = [word_tokenize(text.lower()) for text in ocr_texts]
     bm25 = BM25Okapi(tokenized_corpus)
