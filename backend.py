@@ -16,6 +16,10 @@ from torchvision import transforms
 from scipy.spatial.distance import cdist
 from deep_translator import GoogleTranslator
 from typing import Optional
+from rank_bm25 import BM25Okapi
+from nltk.tokenize import word_tokenize
+import nltk
+nltk.download('punkt')
 
 IMAGE_DIR = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/val2017")
 DB_PATH = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/images_metadata.db")
@@ -290,8 +294,17 @@ async def search_images(query: QueryRequest):
     else:
         logger.warning("Не было найдено опциональных текстовых описаний.")
 
+
+    tokenized_corpus = [word_tokenize(text.lower()) for text in ocr_texts]
+    bm25 = BM25Okapi(tokenized_corpus)
+    tokenized_query = word_tokenize(translated_query.lower())
+    bm25_scores = bm25.get_scores(tokenized_query)
+
+    # Normalize BM25 scores to a range of 0-1
+    bm25_scores = (bm25_scores - np.min(bm25_scores)) / (np.max(bm25_scores) - np.min(bm25_scores))
+
     # Комбинируем расстояния (по изображениям, текстам и знаменитостям)
-    combined_distances = (distances_one_peace + distances_ocr + distances_descriptions) / 3
+    combined_distances = (distances_one_peace + distances_ocr + distances_descriptions + bm25_scores) / 4
     indices = np.argsort(combined_distances)[:10]
 
     # Находим лучшее изображение
@@ -303,6 +316,7 @@ async def search_images(query: QueryRequest):
     logger.info(f"  Балл похожести по ONE-PEACE: {1 - distances_one_peace[best_image_index]}")
     logger.info(f"  Балл похожести по тексту OCR: {1 - distances_ocr[best_image_index]}")
     logger.info(f"  Балл похожести по текстовому описанию: {1 - distances_descriptions[best_image_index]}")
+    logger.info(f"  Балл BM25: {1 - bm25_scores[best_image_index]}")
 
     # Формируем результаты поиска
     results = [{"image_name": image_names[i], "similarity": 1 - combined_distances[i]} for i in indices]
