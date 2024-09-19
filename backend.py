@@ -133,15 +133,18 @@ def get_image_embeddings(db_path):
     """Получение всех эмбеддингов изображений и текстов OCR из базы данных."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    cursor.execute('SELECT image_name, op_embedding, recognized_text FROM image_embeddings')
+    cursor.execute(
+        'SELECT image_name, op_embedding, recognized_text, text_description, text_description_embedding FROM image_embeddings')
     results = cursor.fetchall()
     conn.close()
 
     image_names = [row[0] for row in results]
     embeddings = [np.frombuffer(row[1], dtype=np.float32) for row in results]
     ocr_texts = [row[2] for row in results]
+    textual_descriptions = [row[3] for row in results]
+    textual_descriptions_embeddings = [np.frombuffer(row[4], dtype=np.float32) for row in results]
 
-    return image_names, np.vstack(embeddings), ocr_texts
+    return image_names, np.vstack(embeddings), ocr_texts, textual_descriptions, textual_descriptions_embeddings
 
 
 def vectorize_image(model, transform, image: Image.Image, device):
@@ -263,7 +266,7 @@ async def search_images(query: QueryRequest):
     query_text_embedding = model_sbert.encode(query.query)
 
     # Получаем эмбеддинги изображений, OCR текстов и имен знаменитостей
-    image_names, image_embeddings, ocr_texts, text_description_embeddings = get_image_embeddings(
+    image_names, image_embeddings, ocr_texts, text_descriptions, text_description_embeddings = get_image_embeddings(
         DB_PATH)
 
     # Рассчитываем расстояния между запросом и эмбеддингами изображений
@@ -297,7 +300,7 @@ async def search_images(query: QueryRequest):
         logger.warning("Не было найдено опциональных текстовых описаний.")
 
     tokenized_corpus = [word_tokenize(text.lower()) for text in ocr_texts]
-    tokenized_descriptions = [word_tokenize(desc.lower()) for desc in text_description_embeddings if desc]
+    tokenized_descriptions = [word_tokenize(desc.lower()) for desc in text_descriptions if desc]
 
     full_corpus = tokenized_corpus + tokenized_descriptions
     bm25 = BM25Okapi(full_corpus)
