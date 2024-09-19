@@ -301,8 +301,14 @@ async def search_images(query: QueryRequest):
     tokenized_query = word_tokenize(translated_query.lower())
     bm25_scores = bm25.get_scores(tokenized_query)
 
-    # Normalize BM25 scores to a range of 0-1
-    bm25_scores = (bm25_scores - np.min(bm25_scores)) / (np.max(bm25_scores) - np.min(bm25_scores))
+    # Обработка NaN и бесконечных значений
+    bm25_min = np.min(bm25_scores)
+    bm25_max = np.max(bm25_scores)
+    # Проверка на одинаковые минимальные и максимальные значения
+    if bm25_max != bm25_min:
+        bm25_scores = (bm25_scores - bm25_min) / (bm25_max - bm25_min)
+    else:
+        bm25_scores = np.zeros_like(bm25_scores)  # Если min == max, все оценки будут 0
 
     # Комбинируем расстояния (по изображениям, текстам и знаменитостям)
     combined_distances = (distances_one_peace + distances_ocr + distances_descriptions + bm25_scores) / 4
