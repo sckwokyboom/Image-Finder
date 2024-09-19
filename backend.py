@@ -55,8 +55,8 @@ def setup_models(model_dir=MODEL_DIR, model_name=MODEL_NAME):
     if not os.path.isfile(model_name):
         raise FileNotFoundError(f'The model file "{model_name}" does not exist')
 
-    nltk.download('punkt', '/home/meno/models/nltk_data')
     nltk.data.path.append('/home/meno/models/nltk_data')
+    nltk.download('punkt', download_dir='/home/meno/models/nltk_data')
     one_peace_dir = os.path.normpath(MODEL_DIR)
     if not os.path.isdir(one_peace_dir):
         err_msg = f'The dir "{one_peace_dir}" does not exist'
