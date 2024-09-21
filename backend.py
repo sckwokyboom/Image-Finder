@@ -26,7 +26,7 @@ DB_PATH = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/images_metad
 ONE_PEACE_GIT_REPO_DIR_PATH = 'ONE-PEACE/'
 ONE_PEACE_MODEL_PATH = '/home/meno/models/one-peace.pt'
 ONE_PEACE_EMBEDDING_SIZE = 6144
-TEXT_EMBEDDING_SIZE = 384
+TEXT_EMBEDDING_SIZE = 1536
 
 app = FastAPI()
 
