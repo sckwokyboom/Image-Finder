@@ -341,12 +341,12 @@ async def upload_image(file: UploadFile = File(...), description: Optional[str] 
     save_embedding(DB_PATH, new_image_name, op_embedding, op_embedding_hash, ocr_text, ocr_embedding,
                    ocr_embedding_hash, description, textual_description_embedding, textual_description_embedding_hash)
 
-    add_to_annoy_index(one_peace_index, op_embedding, next_image_number)
+    add_to_annoy_index(one_peace_index, op_embedding.tobytes(), next_image_number)
     if ocr_embedding is not None:
-        add_to_annoy_index(ocr_index, ocr_embedding, next_image_number)
+        add_to_annoy_index(ocr_index, ocr_embedding.tobytes(), next_image_number)
 
     if textual_description_embedding is not None:
-        add_to_annoy_index(description_index, textual_description_embedding, next_image_number)
+        add_to_annoy_index(description_index, textual_description_embedding.tobytes(), next_image_number)
 
     # Построение индексов после добавления новых эмбеддингов (делаем это только после загрузки нескольких изображений для оптимизации)
     if next_image_number % 1 == 0:  # Например, строить индекс каждые 10 изображений
