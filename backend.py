@@ -256,9 +256,9 @@ async def startup_event():
     initialize_database(DB_PATH)
     model_op, model_sbert = setup_models()
     transform_op = create_transforms()
-    one_peace_index = load_annoy_index(ONE_PEACE_EMBEDDING_SIZE, 'one_peace.ann')
-    ocr_index = load_annoy_index(TEXT_EMBEDDING_SIZE, 'ocr.ann')
-    description_index = load_annoy_index(TEXT_EMBEDDING_SIZE, 'descriptions.ann')
+    one_peace_index = load_annoy_index(ONE_PEACE_EMBEDDING_SIZE, '/home/meno/image_rag/Image-RAG/resources/one_peace_index.ann')
+    ocr_index = load_annoy_index(TEXT_EMBEDDING_SIZE, '/home/meno/image_rag/Image-RAG/resources/ocr_index.ann')
+    description_index = load_annoy_index(TEXT_EMBEDDING_SIZE, '/home/meno/image_rag/Image-RAG/resources/descriptions_index.ann')
 
     logger.info("Сервер запущен и готов к работе.")
 
@@ -356,9 +356,10 @@ async def upload_image(file: UploadFile = File(...), description: Optional[str] 
         description_index.build(10)
 
         # Сохраняем обновленные индексы на диск
-        one_peace_index.save("one_peace_index.ann")
-        ocr_index.save("ocr_index.ann")
-        description_index.save("description_index.ann")
+        one_peace_index.save("/home/meno/image_rag/Image-RAG/resources/one_peace_index.ann")
+        ocr_index.save("/home/meno/image_rag/Image-RAG/resources/ocr_index.ann")
+        description_index.save("/home/meno/image_rag/Image-RAG/resources/descriptions_index.ann")
+
         logger.info(f"Индексы построены и записаны в файлы.")
 
     logger.info(f"Изображение '{image_path}' загружено и обработано.")
@@ -382,19 +383,19 @@ async def search_images(query: QueryRequest):
 
     query_text_embedding = model_sbert.encode(query.query)
 
-    one_peace_neighbors = one_peace_index.get_nns_by_vector(text_features, 10, include_distances=True)
+    one_peace_neighbors = one_peace_index.get_nns_by_vector(text_features.tobytes(), 10, include_distances=True)
     one_peace_image_hashes = [compute_hash(one_peace_index.get_item_vector(i)) for i in
                               one_peace_neighbors[0]]
     one_peace_distances = one_peace_neighbors[1]
     one_peace_image_names = get_image_names_by_hashes(DB_PATH, one_peace_image_hashes, "one-peace")
 
-    ocr_neighbors = ocr_index.get_nns_by_vector(query_text_embedding, 10, include_distances=True)
+    ocr_neighbors = ocr_index.get_nns_by_vector(query_text_embedding.tobytes(), 10, include_distances=True)
     ocr_image_hashes = [compute_hash(ocr_index.get_item_vector(i)) for i in ocr_neighbors[0]]
     ocr_distances = ocr_neighbors[1]
     ocr_image_names = get_image_names_by_hashes(DB_PATH, ocr_image_hashes, "ocr")
 
     logger.info("Поиск по эмбеддингам текстовых описаний через ANNOY")
-    description_neighbors = description_index.get_nns_by_vector(query_text_embedding, 10, include_distances=True)
+    description_neighbors = description_index.get_nns_by_vector(query_text_embedding.tobytes(), 10, include_distances=True)
     description_distances = description_neighbors[1]
     description_image_hashes = [compute_hash(description_index.get_item_vector(i)) for i in
                                 description_neighbors[0]]
