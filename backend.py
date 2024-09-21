@@ -384,20 +384,20 @@ async def search_images(query: QueryRequest):
     query_text_embedding = model_sbert.encode(query.query)
 
     one_peace_neighbors = one_peace_index.get_nns_by_vector(text_features.tobytes(), 10, include_distances=True)
-    one_peace_image_hashes = [compute_hash(one_peace_index.get_item_vector(i)) for i in
+    one_peace_image_hashes = [compute_hash(np.array(one_peace_index.get_item_vector(i))) for i in
                               one_peace_neighbors[0]]
     one_peace_distances = one_peace_neighbors[1]
     one_peace_image_names = get_image_names_by_hashes(DB_PATH, one_peace_image_hashes, "one-peace")
 
     ocr_neighbors = ocr_index.get_nns_by_vector(query_text_embedding.tobytes(), 10, include_distances=True)
-    ocr_image_hashes = [compute_hash(ocr_index.get_item_vector(i)) for i in ocr_neighbors[0]]
+    ocr_image_hashes = [compute_hash(np.array(ocr_index.get_item_vector(i))) for i in ocr_neighbors[0]]
     ocr_distances = ocr_neighbors[1]
     ocr_image_names = get_image_names_by_hashes(DB_PATH, ocr_image_hashes, "ocr")
 
     logger.info("Поиск по эмбеддингам текстовых описаний через ANNOY")
     description_neighbors = description_index.get_nns_by_vector(query_text_embedding.tobytes(), 10, include_distances=True)
     description_distances = description_neighbors[1]
-    description_image_hashes = [compute_hash(description_index.get_item_vector(i)) for i in
+    description_image_hashes = [compute_hash(np.array(description_index.get_item_vector(i))) for i in
                                 description_neighbors[0]]
     description_image_names = get_image_names_by_hashes(DB_PATH, description_image_hashes, "description")
     combined_image_names = set(one_peace_image_names + ocr_image_names + description_image_names)
