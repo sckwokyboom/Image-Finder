@@ -18,11 +18,15 @@ from typing import Optional
 from rank_bm25 import BM25Okapi
 from nltk.tokenize import word_tokenize
 import nltk
+from annoy import AnnoyIndex
+from hashlib import md5
 
 IMAGE_DIR = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/val2017")
 DB_PATH = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/images_metadata.db")
 ONE_PEACE_GIT_REPO_DIR_PATH = 'ONE-PEACE/'
 ONE_PEACE_MODEL_PATH = '/home/meno/models/one-peace.pt'
+ONE_PEACE_EMBEDDING_SIZE = 768
+TEXT_EMBEDDING_SIZE = 384
 
 app = FastAPI()
 
@@ -42,6 +46,73 @@ def translate_to_english(text):
     translator = GoogleTranslator(source='ru', target='en')
     translated_text = translator.translate(text)
     return translated_text
+
+
+def compute_hash(embedding: np.ndarray) -> str:
+    """Вычисление хэша для эмбеддинга."""
+    return md5(embedding.tobytes()).hexdigest()
+
+
+def save_hash_to_db(image_path, emb_hash, column_name: str):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT OR REPLACE INTO image_embeddings (image_name, op_embedding, recognized_text, text_description, text_description_embedding)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (
+        image_name,
+        embedding.tobytes(),
+        recognized_text,
+        text_description,
+        text_description_embedding.tobytes() if text_description_embedding is not None else None
+
+    ))
+    conn.commit()
+    conn.close()
+
+
+def add_to_annoy_index(index, embedding, image_id):
+    """Добавить эмбеддинг в ANNOY-индекс."""
+    index.add_item(image_id, embedding)
+
+
+def build_annoy_index(embeddings, embedding_size, index_path):
+    """Создание и сохранение ANNOY-индекса."""
+    index = AnnoyIndex(embedding_size, 'angular')
+    for i, embedding in enumerate(embeddings):
+        index.add_item(i, embedding)
+    index.build(10)  # Количество деревьев для точности поиска
+    index.save(index_path)
+    logger.info(f"ANNOY индекс сохранен в {index_path}")
+
+
+def load_annoy_index(dimension, file_path):
+    """Загрузка ANNOY-индекса или создание нового, если файла нет."""
+    index = AnnoyIndex(dimension, 'angular')
+    if os.path.exists(file_path):
+        logger.info(f"Загружаем ANNOY-индекс из файла {file_path}.")
+        index.load(file_path)
+    else:
+        logger.warning(f"Файл {file_path} не найден. Создаём новый ANNOY-индекс.")
+    return index
+
+
+def create_all_annoy_indexes(db_path):
+    """Создание ANNOY-индексов для всех метрик."""
+    image_names, image_embeddings, ocr_texts, text_descriptions, text_description_embeddings \
+        = get_image_embeddings(db_path)
+
+    # Создание ANNOY-индекса для эмбеддингов One-PEACE
+    build_annoy_index(image_embeddings, ONE_PEACE_EMBEDDING_SIZE, 'one_peace.ann')
+
+    # Создание ANNOY-индекса для эмбеддингов OCR текстов
+    ocr_embeddings = model_sbert.encode(ocr_texts)
+    build_annoy_index(ocr_embeddings, TEXT_EMBEDDING_SIZE, 'ocr.ann')
+
+    # Создание ANNOY-индекса для текстовых описаний
+    valid_description_embeddings = [emb for emb in text_description_embeddings if emb is not None]
+    if valid_description_embeddings:
+        build_annoy_index(valid_description_embeddings, TEXT_EMBEDDING_SIZE, 'descriptions.ann')
 
 
 def setup_models():
@@ -95,10 +166,13 @@ def initialize_database(db_path):
         CREATE TABLE IF NOT EXISTS image_embeddings (
             image_name TEXT PRIMARY KEY,
             op_embedding BLOB,
+            op_embedding_hash TEXT,
             recognized_text TEXT,
             recognized_text_embedding BLOB,
+            recognized_text_embedding_hash TEXT,
             text_description TEXT,
-            text_description_embedding BLOB
+            text_description_embedding BLOB,
+            text_description_embedding_hash TEXT
         )
     ''')
     conn.commit()
@@ -106,20 +180,32 @@ def initialize_database(db_path):
     logger.info("Инициализация базы данных завершена")
 
 
-def save_embedding(db_path, image_name, embedding, recognized_text, text_description=None,
-                   text_description_embedding=None):
+def save_embedding(db_path,
+                   image_name: str,
+                   op_embedding,
+                   op_embedding_hash,
+                   recognized_text,
+                   recognized_text_embedding,
+                   recognized_text_embedding_hash,
+                   textual_description,
+                   textual_description_embedding,
+                   textual_description_embedding_hash):
     """Сохранение эмбеддингов и текста OCR в базу данных."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT OR REPLACE INTO image_embeddings (image_name, op_embedding, recognized_text, text_description, text_description_embedding)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO image_embeddings (image_name, op_embedding, op_embedding_hash, recognized_text, recognized_text_embedding, recognized_text_embedding_hash, text_description, text_description_embedding, text_description_embedding_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         image_name,
-        embedding.tobytes(),
+        op_embedding.tobytes(),
+        op_embedding_hash,
         recognized_text,
-        text_description,
-        text_description_embedding.tobytes() if text_description_embedding is not None else None
+        recognized_text_embedding.tobytes() if recognized_text_embedding is not None else None,
+        recognized_text_embedding_hash,
+        textual_description,
+        textual_description_embedding.tobytes() if textual_description_embedding is not None else None,
+        textual_description_embedding_hash
 
     ))
     conn.commit()
@@ -166,10 +252,14 @@ def create_transforms():
 @app.on_event("startup")
 async def startup_event():
     """Инициализация при запуске сервера."""
-    global model_op, model_sbert, transform_op
+    global model_op, model_sbert, transform_op, one_peace_index, ocr_index, description_index
     initialize_database(DB_PATH)
     model_op, model_sbert = setup_models()
     transform_op = create_transforms()
+    one_peace_index = load_annoy_index(ONE_PEACE_EMBEDDING_SIZE, 'one_peace.ann')
+    ocr_index = load_annoy_index(TEXT_EMBEDDING_SIZE, 'ocr.ann')
+    description_index = load_annoy_index(TEXT_EMBEDDING_SIZE, 'descriptions.ann')
+
     logger.info("Сервер запущен и готов к работе.")
 
 
@@ -215,21 +305,28 @@ async def upload_image(file: UploadFile = File(...), description: Optional[str] 
         logger.error(f"Ошибка при обработке изображения: {str(e)}")
         raise HTTPException(status_code=400, detail="Невозможно обработать изображение")
 
-    embedding = vectorize_image(model_op, transform_op, image,
-                                torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
+    op_embedding = vectorize_image(model_op, transform_op, image,
+                                   torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
 
+    op_embedding_hash = compute_hash(op_embedding)
     # Использование pytesseract для распознавания текста
     ocr_result = pytesseract.image_to_string(image, lang='eng+rus')
+    ocr_embedding = None
+    ocr_embedding_hash = None
     ocr_text = ocr_result.strip()
     if ocr_text:
         logging.info(f"Распознанный текст: {ocr_text}")
+        ocr_embedding = model_sbert.encode(ocr_text)
+        ocr_embedding_hash = compute_hash(ocr_embedding)
     else:
         logging.warning("Не удалось распознать текст на изображении")
 
-    description_embedding = None
+    textual_description_embedding = None
+    textual_description_embedding_hash = None
     if description:
         logging.info(f"Получено описание изображения: {description}")
-        description_embedding = model_sbert.encode(description)
+        textual_description_embedding = model_sbert.encode(description)
+        textual_description_embedding_hash = compute_hash(textual_description_embedding)
     else:
         logging.warning("Описание изображения отсутствует")
 
@@ -241,7 +338,28 @@ async def upload_image(file: UploadFile = File(...), description: Optional[str] 
         os.makedirs(IMAGE_DIR)
 
     image.save(image_path)
-    save_embedding(DB_PATH, new_image_name, embedding, ocr_text, description, description_embedding)
+    save_embedding(DB_PATH, new_image_name, op_embedding, op_embedding_hash, ocr_text, ocr_embedding,
+                   ocr_embedding_hash, description, textual_description_embedding, textual_description_embedding_hash)
+
+    add_to_annoy_index(one_peace_index, op_embedding, next_image_number)
+    if ocr_embedding is not None:
+        add_to_annoy_index(ocr_index, ocr_embedding, next_image_number)
+
+    if textual_description_embedding is not None:
+        add_to_annoy_index(description_index, textual_description_embedding, next_image_number)
+
+    # Построение индексов после добавления новых эмбеддингов (делаем это только после загрузки нескольких изображений для оптимизации)
+    if next_image_number % 1 == 0:  # Например, строить индекс каждые 10 изображений
+        logger.info("Строим ANNOY-индексы...")
+        one_peace_index.build(10)  # Число деревьев для поиска, может варьироваться
+        ocr_index.build(10)
+        description_index.build(10)
+
+        # Сохраняем обновленные индексы на диск
+        one_peace_index.save("one_peace_index.ann")
+        ocr_index.save("ocr_index.ann")
+        description_index.save("description_index.ann")
+        logger.info(f"Индексы построены и записаны в файлы.")
 
     logger.info(f"Изображение '{image_path}' загружено и обработано.")
     return JSONResponse({"status": "Отправленное изображение сохранено в общую базу данных и обработано."})
@@ -264,87 +382,110 @@ async def search_images(query: QueryRequest):
 
     query_text_embedding = model_sbert.encode(query.query)
 
-    # Получаем эмбеддинги изображений, OCR текстов и имен знаменитостей
-    image_names, image_embeddings, ocr_texts, text_descriptions, text_description_embeddings = get_image_embeddings(
-        DB_PATH)
+    one_peace_neighbors = one_peace_index.get_nns_by_vector(text_features, 10, include_distances=True)
+    one_peace_image_hashes = [compute_hash(one_peace_index.get_item_vector(i)) for i in
+                              one_peace_neighbors[0]]
+    one_peace_distances = one_peace_neighbors[1]
+    one_peace_image_names = get_image_names_by_hashes(DB_PATH, one_peace_image_hashes, "one-peace")
 
-    # Рассчитываем расстояния между запросом и эмбеддингами изображений
-    distances_one_peace = cdist(text_features, image_embeddings, metric='cosine').flatten()
+    ocr_neighbors = ocr_index.get_nns_by_vector(query_text_embedding, 10, include_distances=True)
+    ocr_image_hashes = [compute_hash(ocr_index.get_item_vector(i)) for i in ocr_neighbors[0]]
+    ocr_distances = ocr_neighbors[1]
+    ocr_image_names = get_image_names_by_hashes(DB_PATH, ocr_image_hashes, "ocr")
 
-    # Рассчитываем расстояния между запросом и текстами OCR
-    ocr_embeddings = model_sbert.encode(ocr_texts)
-    query_text_embedding = np.array(query_text_embedding).reshape(1, -1)
-    ocr_embeddings = np.array(ocr_embeddings)
-    distances_ocr = cdist(query_text_embedding, ocr_embeddings, metric='cosine').flatten()
+    logger.info("Поиск по эмбеддингам текстовых описаний через ANNOY")
+    description_neighbors = description_index.get_nns_by_vector(query_text_embedding, 10, include_distances=True)
+    description_distances = description_neighbors[1]
+    description_image_hashes = [compute_hash(description_index.get_item_vector(i)) for i in
+                                description_neighbors[0]]
+    description_image_names = get_image_names_by_hashes(DB_PATH, description_image_hashes, "description")
+    combined_image_names = set(one_peace_image_names + ocr_image_names + description_image_names)
+    if not combined_image_names:
+        return JSONResponse({"status": "Изображения не найдены."}, status_code=404)
 
-    distances_descriptions = np.ones(len(image_names))
+    combined_results = {}
 
-    if text_description_embeddings:
-        # Подготавливаем текстовые эмбеддинги только для тех изображений, у которых есть описание
-        valid_description_indices = [i for i, emb in enumerate(text_description_embeddings) if emb is not None]
-        valid_description_embeddings = [emb for emb in text_description_embeddings if emb is not None]
-        if valid_description_embeddings:
-            valid_description_embeddings = np.array(valid_description_embeddings)
-            if len(valid_description_embeddings.shape) == 1:
-                valid_description_embeddings = valid_description_embeddings.reshape(-1, query_text_embedding.shape[1])
-            valid_distances_descriptions = cdist(query_text_embedding, valid_description_embeddings,
-                                                 metric='cosine').flatten()
-
-            # Заполняем расстояния для тех изображений, у которых есть описание
-            for idx, valid_idx in enumerate(valid_description_indices):
-                distances_descriptions[valid_idx] = valid_distances_descriptions[idx]
+    # Для каждого изображения из one-peace
+    for i, image_name in enumerate(one_peace_image_names):
+        if image_name not in combined_results:
+            combined_results[image_name] = {'one_peace_distance': one_peace_distances[i], 'ocr_distance': None,
+                                            'description_distance': None}
         else:
-            logger.warning("Все текстовые описания равны None (пустые).")
-    else:
-        logger.warning("Не было найдено опциональных текстовых описаний.")
+            combined_results[image_name]['one_peace_distance'] = one_peace_distances[i]
 
-    tokenized_corpus = [word_tokenize(text.lower()) for text in ocr_texts]
-    tokenized_descriptions = [word_tokenize(desc.lower()) for desc in text_descriptions if desc]
+    # Для каждого изображения из ocr
+    for i, image_name in enumerate(ocr_image_names):
+        if image_name not in combined_results:
+            combined_results[image_name] = {'one_peace_distance': None, 'ocr_distance': ocr_distances[i],
+                                            'description_distance': None}
+        else:
+            combined_results[image_name]['ocr_distance'] = ocr_distances[i]
 
-    full_corpus = tokenized_corpus + tokenized_descriptions
-    bm25 = BM25Okapi(full_corpus)
-    tokenized_query = word_tokenize(translated_query.lower())
+    # Для каждого изображения из описаний
+    for i, image_name in enumerate(description_image_names):
+        if image_name not in combined_results:
+            combined_results[image_name] = {'one_peace_distance': None, 'ocr_distance': None,
+                                            'description_distance': description_distances[i]}
+        else:
+            combined_results[image_name]['description_distance'] = description_distances[i]
 
-    logger.info(f"Токенизированный запрос: {tokenized_query}")
-    logger.info(f"Количество документов в корпусе для BM25: {len(full_corpus)}")
+    results = []
+    for image_name, distances in combined_results.items():
+        # Считаем только те метрики, которые существуют
+        valid_distances = [dist for dist in [distances['one_peace_distance'], distances['ocr_distance'],
+                                             distances['description_distance']] if dist is not None]
+        if valid_distances:
+            avg_distance = sum(valid_distances) / len(valid_distances)
+            results.append({'image_name': image_name, 'avg_distance': avg_distance})
 
-    bm25_scores = bm25.get_scores(tokenized_query)
+    # Сортируем по средней дистанции
+    sorted_results = sorted(results, key=lambda x: x['avg_distance'])[:10]
 
-    bm25_min = np.min(bm25_scores)
-    bm25_max = np.max(bm25_scores)
+    if not sorted_results:
+        return JSONResponse({"status": "Изображения не найдены."}, status_code=404)
 
-    # Логирование значений BM25 перед нормализацией
-    logger.info(f"BM25 Scores: {bm25_scores}")
-    logger.info(f"BM25 Min: {bm25_min}, BM25 Max: {bm25_max}")
-
-    # Нормализуем BM25, если есть разница в значениях
-    if bm25_max != bm25_min:
-        bm25_scores = (bm25_scores - bm25_min) / (bm25_max - bm25_min)
-    else:
-        logger.warning("Минимальное и максимальное значения BM25 совпадают, нормализация не выполнена.")
-        bm25_scores = np.zeros_like(bm25_scores)
-
-    logger.info(f"BM25 Scores после нормализации: {bm25_scores}")
-
-    # Комбинируем расстояния (по изображениям, текстам и знаменитостям)
-    combined_distances = (distances_one_peace + distances_ocr + distances_descriptions + bm25_scores) / 4
-    indices = np.argsort(combined_distances)[:10]
-
-    # Находим лучшее изображение
-    best_image_index = indices[0]
-    best_image_name = image_names[best_image_index]
-
-    # Логирование только для лучшего изображения
-    logger.info(f"Лучшее изображение: {best_image_name}")
-    logger.info(f"  Балл похожести по ONE-PEACE: {1 - distances_one_peace[best_image_index]}")
-    logger.info(f"  Балл похожести по тексту OCR: {1 - distances_ocr[best_image_index]}")
-    logger.info(f"  Балл похожести по текстовому описанию: {1 - distances_descriptions[best_image_index]}")
-    logger.info(f"  Балл BM25: {1 - bm25_scores[best_image_index]}")
-
-    # Формируем результаты поиска
-    results = [{"image_name": image_names[i], "similarity": 1 - combined_distances[i]} for i in indices]
     logger.info(f"Поиск по запросу '{query.query}' завершен. Найдено {len(results)} результатов.")
-    return JSONResponse(results)
+    return JSONResponse(sorted_results)
+
+
+def get_image_names_by_hashes(db_path: str, embedding_hashes: list[str], index_type: str) -> list:
+    """
+    Находит изображения по хэшу эмбеддинга, извлеченного из ANNOY индекса.
+
+    :param db_path: Путь к базе данных
+    :param annoy_index: ANNOY индекс, используемый для поиска ближайших эмбеддингов
+    :param query_embedding: Эмбеддинг, по которому производится поиск
+    :param index_type: Тип индекса (one-peace, ocr, description), чтобы искать по соответствующему столбцу
+    :return: Список имен изображений, которые имеют совпадающий хэш эмбеддинга
+    """
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    image_names = []
+
+    # В зависимости от типа индекса используем разные столбцы для поиска хэшей
+    if index_type == 'one-peace':
+        hash_column = 'one_peace_hash'
+    elif index_type == 'ocr':
+        hash_column = 'ocr_hash'
+    elif index_type == 'description':
+        hash_column = 'description_hash'
+    else:
+        raise ValueError(f"Неизвестный тип индекса: {index_type}")
+
+    # Для каждого найденного эмбеддинга ищем изображения с этим хэшем
+    for vector_hash in embedding_hashes:
+        cursor.execute(f"SELECT image_name FROM images WHERE {hash_column} = ?", (vector_hash,))
+        result = cursor.fetchone()
+        if result:
+            image_names.append(result[0])
+
+    conn.close()
+
+    if not image_names:
+        raise ValueError(f"Изображения с хэшами эмбеддингов не найдены.")
+
+    return image_names
 
 
 if __name__ == "__main__":
