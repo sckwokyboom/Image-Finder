@@ -7,9 +7,8 @@ import sqlite3
 import numpy as np
 import logging
 from PIL import Image
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import JSONResponse
-from fastapi import Form
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 from torchvision import transforms
@@ -19,8 +18,8 @@ from typing import Optional
 
 IMAGE_DIR = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/val2017")
 DB_PATH = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/images_metadata.db")
-MODEL_DIR = 'ONE-PEACE/'
-MODEL_NAME = '/home/meno/models/one-peace.pt'
+ONE_PEACE_GITHUB_REPO_DIR_PATH = 'ONE-PEACE/'
+ONE_PEACE_MODEL_PATH = '/home/meno/models/one-peace.pt'
 
 app = FastAPI()
 
@@ -35,8 +34,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Настройка pytesseract
-pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'  # Укажите путь к исполняемому файлу tesseract
+pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
 
 
 def translate_to_english(text):
@@ -45,20 +43,20 @@ def translate_to_english(text):
     return translated_text
 
 
-def setup_models(model_dir=MODEL_DIR, model_name=MODEL_NAME):
+def setup_models(model_dir=ONE_PEACE_GITHUB_REPO_DIR_PATH, model_name=ONE_PEACE_MODEL_PATH):
     """Загрузка модели ONE-PEACE с проверкой путей."""
     if not os.path.isdir(model_dir):
         raise FileNotFoundError(f'The directory "{model_dir}" does not exist')
     if not os.path.isfile(model_name):
         raise FileNotFoundError(f'The model file "{model_name}" does not exist')
 
-    one_peace_dir = os.path.normpath(MODEL_DIR)
+    one_peace_dir = os.path.normpath(ONE_PEACE_GITHUB_REPO_DIR_PATH)
     if not os.path.isdir(one_peace_dir):
         err_msg = f'The dir "{one_peace_dir}" does not exist'
         logger.error(err_msg)
         raise ValueError(err_msg)
 
-    model_name = os.path.normpath(MODEL_NAME)
+    model_name = os.path.normpath(ONE_PEACE_MODEL_PATH)
     if not os.path.isfile(model_name):
         err_msg = f'The file "{model_name}" does not exist'
         logger.error(err_msg)
@@ -92,10 +90,13 @@ def initialize_database(db_path):
         CREATE TABLE IF NOT EXISTS image_embeddings (
             image_name TEXT PRIMARY KEY,
             op_embedding BLOB,
+            op_embedding_hash TEXT,
             recognized_text TEXT,
             recognized_text_embedding BLOB,
+            recognized_text_embedding_hash TEXT,
             text_description TEXT,
-            text_description_embedding BLOB
+            text_description_embedding BLOB,
+            text_description_embedding_hash TEXT
         )
     ''')
     conn.commit()
