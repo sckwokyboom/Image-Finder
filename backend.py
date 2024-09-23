@@ -305,14 +305,21 @@ async def search_images(query: QueryRequest):
 
     tokenized_query = nltk.word_tokenize(translated_query.lower())
 
-    bm25_scores_ocr = bm25_ocr.get_scores(tokenized_query)
+    bm25_scores_ocr = bm25_ocr.get_scores(tokenized_query) if bm25_ocr else np.zeros(len(image_names))
     bm25_scores_descriptions = bm25_descriptions.get_scores(tokenized_query) if bm25_descriptions else np.zeros(
         len(image_names))
 
-    bm25_scores_ocr = (bm25_scores_ocr - np.min(bm25_scores_ocr)) / (np.max(bm25_scores_ocr) - np.min(bm25_scores_ocr))
-    bm25_scores_descriptions = (bm25_scores_descriptions - np.min(bm25_scores_descriptions)) / (
-                np.max(bm25_scores_descriptions) - np.min(bm25_scores_descriptions)) if bm25_descriptions else np.ones(
-        len(image_names))
+    if bm25_ocr:
+        bm25_scores_ocr = (bm25_scores_ocr - np.min(bm25_scores_ocr)) / (
+                    np.max(bm25_scores_ocr) - np.min(bm25_scores_ocr))
+    else:
+        bm25_scores_ocr = np.ones(len(image_names))
+
+    if bm25_descriptions:
+        bm25_scores_descriptions = (bm25_scores_descriptions - np.min(bm25_scores_descriptions)) / (
+                np.max(bm25_scores_descriptions) - np.min(bm25_scores_descriptions))
+    else:
+        bm25_scores_descriptions = np.ones(len(image_names))
 
     # Комбинируем расстояния (по изображениям, текстам и знаменитостям)
     combined_distances = (distances_one_peace + distances_ocr + distances_descriptions) / 3
