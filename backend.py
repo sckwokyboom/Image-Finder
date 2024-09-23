@@ -15,6 +15,8 @@ from torchvision import transforms
 from scipy.spatial.distance import cdist
 from deep_translator import GoogleTranslator
 from typing import Optional
+from rank_bm25 import BM25Okapi
+import nltk
 
 IMAGE_DIR = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/val2017")
 DB_PATH = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/images_metadata.db")
@@ -50,6 +52,7 @@ def setup_models(model_dir=ONE_PEACE_GITHUB_REPO_DIR_PATH, model_name=ONE_PEACE_
     if not os.path.isfile(model_name):
         raise FileNotFoundError(f'The model file "{model_name}" does not exist')
 
+    nltk.download('punkt_tab')
     one_peace_dir = os.path.normpath(ONE_PEACE_GITHUB_REPO_DIR_PATH)
     if not os.path.isdir(one_peace_dir):
         err_msg = f'The dir "{one_peace_dir}" does not exist'
@@ -184,7 +187,7 @@ def get_image_embeddings(db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute(
-        'SELECT image_name, op_embedding, recognized_text, text_description_embedding FROM image_embeddings')
+        'SELECT image_name, op_embedding, recognized_text, text_description_embedding, text_description FROM image_embeddings')
     results = cursor.fetchall()
     conn.close()
 
@@ -194,8 +197,9 @@ def get_image_embeddings(db_path):
     ocr_texts = [row[2] for row in results]
     text_description_embeddings = [np.frombuffer(row[3], dtype=np.float32) if row[3] is not None else None for row in
                                    results]
+    text_descriptions = [row[4] for row in results]
 
-    return image_names, np.vstack(embeddings), ocr_texts, text_description_embeddings
+    return image_names, np.vstack(embeddings), ocr_texts, text_description_embeddings, text_descriptions
 
 
 @app.post("/upload-image/")
@@ -258,7 +262,7 @@ async def search_images(query: QueryRequest):
     query_text_embedding = model_sbert.encode(query.query)
 
     # Получаем эмбеддинги изображений, OCR текстов и имен знаменитостей
-    image_names, image_embeddings, ocr_texts, text_description_embeddings = get_image_embeddings(
+    image_names, image_embeddings, ocr_texts, text_description_embeddings, text_descriptions = get_image_embeddings(
         DB_PATH)
 
     # Рассчитываем расстояния между запросом и эмбеддингами изображений
@@ -291,6 +295,25 @@ async def search_images(query: QueryRequest):
     else:
         logger.warning("Не было найдено опциональных текстовых описаний.")
 
+    tokenized_ocr_texts = [nltk.word_tokenize(text.lower()) for text in ocr_texts] if ocr_texts else []
+    # Если есть текстовые описания, токенизируем их, иначе создаем пустой список
+    tokenized_descriptions = [nltk.word_tokenize(desc.lower()) for desc in text_descriptions if
+                              desc] if text_descriptions else []
+
+    bm25_ocr = BM25Okapi(tokenized_ocr_texts) if tokenized_ocr_texts else None
+    bm25_descriptions = BM25Okapi(tokenized_descriptions) if tokenized_descriptions else None
+
+    tokenized_query = nltk.word_tokenize(translated_query.lower())
+
+    bm25_scores_ocr = bm25_ocr.get_scores(tokenized_query)
+    bm25_scores_descriptions = bm25_descriptions.get_scores(tokenized_query) if bm25_descriptions else np.zeros(
+        len(image_names))
+
+    bm25_scores_ocr = (bm25_scores_ocr - np.min(bm25_scores_ocr)) / (np.max(bm25_scores_ocr) - np.min(bm25_scores_ocr))
+    bm25_scores_descriptions = (bm25_scores_descriptions - np.min(bm25_scores_descriptions)) / (
+                np.max(bm25_scores_descriptions) - np.min(bm25_scores_descriptions)) if bm25_descriptions else np.ones(
+        len(image_names))
+
     # Комбинируем расстояния (по изображениям, текстам и знаменитостям)
     combined_distances = (distances_one_peace + distances_ocr + distances_descriptions) / 3
     indices = np.argsort(combined_distances)[:10]
@@ -304,6 +327,8 @@ async def search_images(query: QueryRequest):
     logger.info(f"  Балл похожести по ONE-PEACE: {1 - distances_one_peace[best_image_index]}")
     logger.info(f"  Балл похожести по тексту OCR: {1 - distances_ocr[best_image_index]}")
     logger.info(f"  Балл похожести по текстовому описанию: {1 - distances_descriptions[best_image_index]}")
+    logger.info(f"  BM25 оценка по OCR: {bm25_scores_ocr[best_image_index]}")
+    logger.info(f"  BM25 оценка по текстовым описаниям: {bm25_scores_descriptions[best_image_index]}")
 
     # Формируем результаты поиска
     results = [{"image_name": image_names[i], "similarity": 1 - combined_distances[i]} for i in indices]

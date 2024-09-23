@@ -13,3 +13,5 @@ deep_translator
 aiohttp
 deepface
 tf-keras
+rank_bm25
+nltk
