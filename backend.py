@@ -295,31 +295,32 @@ async def search_images(query: QueryRequest):
     else:
         logger.warning("Не было найдено опциональных текстовых описаний.")
 
-    tokenized_ocr_texts = [nltk.word_tokenize(text.lower()) for text in ocr_texts] if ocr_texts else []
-    # Если есть текстовые описания, токенизируем их, иначе создаем пустой список
-    tokenized_descriptions = [nltk.word_tokenize(desc.lower()) for desc in text_descriptions if
-                              desc] if text_descriptions else []
-
-    bm25_ocr = BM25Okapi(tokenized_ocr_texts) if tokenized_ocr_texts else None
-    bm25_descriptions = BM25Okapi(tokenized_descriptions) if tokenized_descriptions else None
-
-    tokenized_query = nltk.word_tokenize(translated_query.lower())
-
-    bm25_scores_ocr = bm25_ocr.get_scores(tokenized_query) if bm25_ocr else np.zeros(len(image_names))
-    bm25_scores_descriptions = bm25_descriptions.get_scores(tokenized_query) if bm25_descriptions else np.zeros(
-        len(image_names))
-
-    if bm25_ocr:
-        bm25_scores_ocr = (bm25_scores_ocr - np.min(bm25_scores_ocr)) / (
+    tokenized_query = translated_query.split()
+    # --- BM25 по OCR ---
+    tokenized_ocr_texts = [ocr.split() for ocr in ocr_texts if ocr]  # Токенизируем только непустые OCR тексты
+    if tokenized_ocr_texts:
+        bm25_ocr = BM25Okapi(tokenized_ocr_texts)
+        bm25_scores_ocr = bm25_ocr.get_scores(tokenized_query)
+        if np.max(bm25_scores_ocr) > 0:
+            bm25_scores_ocr = (bm25_scores_ocr - np.min(bm25_scores_ocr)) / (
                     np.max(bm25_scores_ocr) - np.min(bm25_scores_ocr))
+        else:
+            bm25_scores_ocr = np.zeros(len(image_names))
     else:
-        bm25_scores_ocr = np.ones(len(image_names))
+        bm25_scores_ocr = np.zeros(len(image_names))  # Если OCR тексты отсутствуют
 
-    if bm25_descriptions:
-        bm25_scores_descriptions = (bm25_scores_descriptions - np.min(bm25_scores_descriptions)) / (
-                np.max(bm25_scores_descriptions) - np.min(bm25_scores_descriptions))
+    # --- BM25 по текстовым описаниям ---
+    tokenized_descriptions = [desc.split() for desc in text_descriptions if desc]  # Только непустые описания
+    if tokenized_descriptions:
+        bm25_descriptions = BM25Okapi(tokenized_descriptions)
+        bm25_scores_descriptions = bm25_descriptions.get_scores(tokenized_query)
+        if np.max(bm25_scores_descriptions) > 0:
+            bm25_scores_descriptions = (bm25_scores_descriptions - np.min(bm25_scores_descriptions)) / (
+                    np.max(bm25_scores_descriptions) - np.min(bm25_scores_descriptions))
+        else:
+            bm25_scores_descriptions = np.zeros(len(image_names))
     else:
-        bm25_scores_descriptions = np.ones(len(image_names))
+        bm25_scores_descriptions = np.zeros(len(image_names))  # Если текстовые описания отсутствуют
 
     # Комбинируем расстояния (по изображениям, текстам и знаменитостям)
     combined_distances = (distances_one_peace + distances_ocr + distances_descriptions) / 3
