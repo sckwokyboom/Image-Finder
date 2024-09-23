@@ -295,26 +295,34 @@ async def search_images(query: QueryRequest):
     else:
         logger.warning("Не было найдено опциональных текстовых описаний.")
 
+    def normalize_bm25_scores(scores):
+        """Нормализуем баллы BM25 через логарифмическую шкалу."""
+        scores = np.array(scores)
+        scores = np.log1p(scores)  # Применяем логарифмическую нормализацию
+        if np.max(scores) > 0:
+            return scores / np.max(scores)  # Приводим значения в диапазон [0, 1]
+        return np.zeros_like(scores)  # Возвращаем нули, если всё пустое
+
     tokenized_query = query.query.split()
     # --- BM25 по OCR ---
     tokenized_ocr_texts = [ocr.split() if ocr else [] for ocr in ocr_texts]
     bm25_ocr = BM25Okapi(tokenized_ocr_texts)
-    bm25_scores_ocr = bm25_ocr.get_scores(tokenized_query)
-    if np.max(bm25_scores_ocr) > 0:
-        bm25_scores_ocr = (bm25_scores_ocr - np.min(bm25_scores_ocr)) / (
-                np.max(bm25_scores_ocr) - np.min(bm25_scores_ocr))
-    else:
-        bm25_scores_ocr = np.zeros(len(image_names))
+    bm25_scores_ocr = normalize_bm25_scores(bm25_ocr.get_scores(tokenized_query))
+    # if np.max(bm25_scores_ocr) > 0:
+    #     bm25_scores_ocr = (bm25_scores_ocr - np.min(bm25_scores_ocr)) / (
+    #             np.max(bm25_scores_ocr) - np.min(bm25_scores_ocr))
+    # else:
+    #     bm25_scores_ocr = np.zeros(len(image_names))
 
     # --- BM25 по текстовым описаниям ---
     tokenized_descriptions = [desc.split() if desc else [] for desc in text_descriptions]
     bm25_descriptions = BM25Okapi(tokenized_descriptions)
-    bm25_scores_descriptions = bm25_descriptions.get_scores(tokenized_query)
-    if np.max(bm25_scores_descriptions) > 0:
-        bm25_scores_descriptions = (bm25_scores_descriptions - np.min(bm25_scores_descriptions)) / (
-                np.max(bm25_scores_descriptions) - np.min(bm25_scores_descriptions))
-    else:
-        bm25_scores_descriptions = np.zeros(len(image_names))
+    bm25_scores_descriptions = normalize_bm25_scores(bm25_descriptions.get_scores(tokenized_query))
+    # if np.max(bm25_scores_descriptions) > 0:
+    #     bm25_scores_descriptions = (bm25_scores_descriptions - np.min(bm25_scores_descriptions)) / (
+    #             np.max(bm25_scores_descriptions) - np.min(bm25_scores_descriptions))
+    # else:
+    #     bm25_scores_descriptions = np.zeros(len(image_names))
 
     # Комбинируем расстояния (по изображениям, текстам и знаменитостям)
     combined_distances = (distances_one_peace + distances_ocr + distances_descriptions) / 3
