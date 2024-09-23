@@ -469,11 +469,11 @@ def get_image_names_by_hashes(db_path: str, embedding_hashes: list[str], index_t
 
     # В зависимости от типа индекса используем разные столбцы для поиска хэшей
     if index_type == 'one-peace':
-        hash_column = 'one_peace_hash'
+        hash_column = 'op_embedding_hash'
     elif index_type == 'ocr':
-        hash_column = 'ocr_hash'
+        hash_column = 'recognized_text_embedding_hash'
     elif index_type == 'description':
-        hash_column = 'description_hash'
+        hash_column = 'textual_description_embedding_hash'
     else:
         raise ValueError(f"Неизвестный тип индекса: {index_type}")
 
