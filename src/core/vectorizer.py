@@ -8,7 +8,7 @@ import easyocr
 import numpy as np
 import torch
 from PIL import Image
-from annoy import AnnoyIndex
+# from annoy import AnnoyIndex
 from sentence_transformers import SentenceTransformer
 from torchvision import transforms
 
@@ -54,9 +54,15 @@ def initialize_database(db_path):
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS image_embeddings (
             image_name TEXT PRIMARY KEY,
-            embedding BLOB,
+            op_embedding BLOB,
+            op_embedding_hash TEXT,
             recognized_text TEXT,
-            text_embedding BLOB
+            recognized_text_embedding BLOB,
+            recognized_text_embedding_hash TEXT,
+            text_description TEXT,
+            text_description_embedding BLOB,
+            text_description_embedding_hash TEXT,
+            recognized_selebrities TEXT
         )
     ''')
     conn.commit()
@@ -67,7 +73,7 @@ def save_embeddings_to_sqlite(db_path, image_name, image_embedding, text, text_e
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT OR REPLACE INTO image_embeddings (image_name, embedding, recognized_text, text_embedding)
+        INSERT OR REPLACE INTO image_embeddings (image_name, op_embedding, recognized_text, recognized_text_embedding)
         VALUES (?, ?, ?, ?)
     ''', (
         image_name, image_embedding.tobytes(), text, text_embedding.tobytes() if text_embedding is not None else None))
@@ -75,13 +81,13 @@ def save_embeddings_to_sqlite(db_path, image_name, image_embedding, text, text_e
     conn.close()
 
 
-def add_to_annoy_index(annoy_index, embeddings, image_index):
-    annoy_index.add_item(image_index, embeddings)
+# def add_to_annoy_index(annoy_index, embeddings, image_index):
+#     annoy_index.add_item(image_index, embeddings)
 
 
-def save_annoy_index(annoy_index, index_path, n_trees=10):
-    annoy_index.build(n_trees)
-    annoy_index.save(index_path)
+# def save_annoy_index(annoy_index, index_path, n_trees=10):
+#     annoy_index.build(n_trees)
+#     annoy_index.save(index_path)
 
 
 def setup_logging(log_path):
@@ -116,10 +122,10 @@ def main():
                         help='Device to use for inference.')
     parser.add_argument('--log-path', dest='log_path', type=str, default=None,
                         help='Path to log file.')
-    parser.add_argument('--image-annoy-index-path', dest='image_annoy_index_path', type=str, required=True,
-                        help='Path to image Annoy index file.')
-    parser.add_argument('--text-annoy-index-path', dest='text_annoy_index_path', type=str, required=True,
-                        help='Path to text Annoy index file.')
+    # parser.add_argument('--image-annoy-index-path', dest='image_annoy_index_path', type=str, required=True,
+    #                     help='Path to image Annoy index file.')
+    # parser.add_argument('--text-annoy-index-path', dest='text_annoy_index_path', type=str, required=True,
+    #                     help='Path to text Annoy index file.')
 
     args = parser.parse_args()
 
@@ -164,8 +170,8 @@ def main():
         first_embedding = vectorize_image(first_image_path, model, transform, device)
         embedding_dim = first_embedding.shape[1]
 
-        image_annoy_index = AnnoyIndex(embedding_dim, 'angular')
-        text_annoy_index = AnnoyIndex(384, 'angular')
+        # image_annoy_index = AnnoyIndex(embedding_dim, 'angular')
+        # text_annoy_index = AnnoyIndex(384, 'angular')
     else:
         one_peace_demo_logger.error("No images found in the directory.")
         sys.exit(1)
@@ -177,17 +183,17 @@ def main():
             text, text_embedding = extract_text_embedding(image_path, sbert_model, device)
 
             save_embeddings_to_sqlite(args.db_path, image_name, image_embedding, text, text_embedding)
-            add_to_annoy_index(image_annoy_index, image_embedding[0], idx)
+            # add_to_annoy_index(image_annoy_index, image_embedding[0], idx)
 
-            if text_embedding is not None:
-                add_to_annoy_index(text_annoy_index, text_embedding[0], idx)
+            # if text_embedding is not None:
+            #     add_to_annoy_index(text_annoy_index, text_embedding[0], idx)
 
-    save_annoy_index(image_annoy_index, args.image_annoy_index_path)
-    save_annoy_index(text_annoy_index, args.text_annoy_index_path)
+    # save_annoy_index(image_annoy_index, args.image_annoy_index_path)
+    # save_annoy_index(text_annoy_index, args.text_annoy_index_path)
 
-    one_peace_demo_logger.info(f'Image Annoy index saved to {args.image_annoy_index_path}')
-    one_peace_demo_logger.info(f'Text Annoy index saved to {args.text_annoy_index_path}')
-    one_peace_demo_logger.info('Vectorization and indexing process has finished.')
+    # one_peace_demo_logger.info(f'Image Annoy index saved to {args.image_annoy_index_path}')
+    # one_peace_demo_logger.info(f'Text Annoy index saved to {args.text_annoy_index_path}')
+    # one_peace_demo_logger.info('Vectorization and indexing process has finished.')
 
 
 if __name__ == '__main__':

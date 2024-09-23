@@ -99,7 +99,8 @@ def initialize_database(db_path):
             recognized_text_embedding_hash TEXT,
             text_description TEXT,
             text_description_embedding BLOB,
-            text_description_embedding_hash TEXT
+            text_description_embedding_hash TEXT,
+            recognized_selebrities TEXT
         )
     ''')
     conn.commit()
