@@ -256,9 +256,11 @@ async def startup_event():
     initialize_database(DB_PATH)
     model_op, model_sbert = setup_models()
     transform_op = create_transforms()
-    one_peace_index = load_annoy_index(ONE_PEACE_EMBEDDING_SIZE, '/home/meno/image_rag/Image-RAG/resources/one_peace_index.ann')
+    one_peace_index = load_annoy_index(ONE_PEACE_EMBEDDING_SIZE,
+                                       '/home/meno/image_rag/Image-RAG/resources/one_peace_index.ann')
     ocr_index = load_annoy_index(TEXT_EMBEDDING_SIZE, '/home/meno/image_rag/Image-RAG/resources/ocr_index.ann')
-    description_index = load_annoy_index(TEXT_EMBEDDING_SIZE, '/home/meno/image_rag/Image-RAG/resources/descriptions_index.ann')
+    description_index = load_annoy_index(TEXT_EMBEDDING_SIZE,
+                                         '/home/meno/image_rag/Image-RAG/resources/descriptions_index.ann')
 
     logger.info("Сервер запущен и готов к работе.")
 
@@ -395,7 +397,8 @@ async def search_images(query: QueryRequest):
     ocr_image_names = get_image_names_by_hashes(DB_PATH, ocr_image_hashes, "ocr")
 
     logger.info("Поиск по эмбеддингам текстовых описаний через ANNOY")
-    description_neighbors = description_index.get_nns_by_vector(query_text_embedding.tobytes(), 10, include_distances=True)
+    description_neighbors = description_index.get_nns_by_vector(query_text_embedding.tobytes(), 10,
+                                                                include_distances=True)
     description_distances = description_neighbors[1]
     description_image_hashes = [compute_hash(np.array(description_index.get_item_vector(i))) for i in
                                 description_neighbors[0]]
@@ -476,7 +479,7 @@ def get_image_names_by_hashes(db_path: str, embedding_hashes: list[str], index_t
 
     # Для каждого найденного эмбеддинга ищем изображения с этим хэшем
     for vector_hash in embedding_hashes:
-        cursor.execute(f"SELECT image_name FROM images WHERE {hash_column} = ?", (vector_hash,))
+        cursor.execute(f"SELECT image_name FROM image_embeddings WHERE {hash_column} = ?", (vector_hash,))
         result = cursor.fetchone()
         if result:
             image_names.append(result[0])
