@@ -276,28 +276,28 @@ async def search_images(query: QueryRequest):
     # query_text_embedding = np.array(query_text_embedding).reshape(1, -1)
     # ocr_embeddings = np.array(ocr_embeddings)
     # distances_ocr = cdist(query_text_embedding, ocr_embeddings, metric='cosine').flatten()
-    distances_ocr = np.ones(len(image_names))
+    # distances_ocr = np.ones(len(image_names))
     # if ocr_embeddings:
     #     distances_ocr = cdist(query_text_embedding, ocr_embeddings, metric='cosine').flatten()
     distances_descriptions = np.ones(len(image_names))
 
-    if ocr_embeddings:
-        # Подготавливаем текстовые эмбеддинги только для тех изображений, у которых есть описание
-        valid_ocr_indices = [i for i, emb in enumerate(ocr_embeddings) if emb is not None]
-        valid_ocr_embeddings = [emb for emb in ocr_embeddings if emb is not None]
-        if valid_ocr_embeddings:
-            valid_ocr_embeddings = np.array(valid_ocr_embeddings)
-            if len(valid_ocr_embeddings.shape) == 1:
-                valid_ocr_embeddings = valid_ocr_embeddings.reshape(-1, query_text_embedding.shape[1])
-            valid_distances_ocr = cdist(query_text_embedding, valid_ocr_embeddings,
-                                        metric='cosine').flatten()
-
-            for idx, valid_idx in enumerate(valid_ocr_indices):
-                distances_ocr[valid_idx] = valid_distances_ocr[idx]
-        else:
-            logger.warning("Все распознанные тексты равны None (пустые).")
-    else:
-        logger.warning("Не было найдено распознанных текстов.")
+    # if ocr_embeddings:
+    #     # Подготавливаем текстовые эмбеддинги только для тех изображений, у которых есть описание
+    #     valid_ocr_indices = [i for i, emb in enumerate(ocr_embeddings) if emb is not None]
+    #     valid_ocr_embeddings = [emb for emb in ocr_embeddings if emb is not None]
+    #     if valid_ocr_embeddings:
+    #         valid_ocr_embeddings = np.array(valid_ocr_embeddings)
+    #         if len(valid_ocr_embeddings.shape) == 1:
+    #             valid_ocr_embeddings = valid_ocr_embeddings.reshape(-1, query_text_embedding.shape[1])
+    #         valid_distances_ocr = cdist(query_text_embedding, valid_ocr_embeddings,
+    #                                     metric='cosine').flatten()
+    #
+    #         for idx, valid_idx in enumerate(valid_ocr_indices):
+    #             distances_ocr[valid_idx] = valid_distances_ocr[idx]
+    #     else:
+    #         logger.warning("Все распознанные тексты равны None (пустые).")
+    # else:
+    #     logger.warning("Не было найдено распознанных текстов.")
 
     if text_description_embeddings:
         # Подготавливаем текстовые эмбеддинги только для тех изображений, у которых есть описание
@@ -348,7 +348,7 @@ async def search_images(query: QueryRequest):
         normalized_bm25_scores_descriptions = normalize_bm25_scores(bm25_scores_descriptions)
 
     # Комбинируем расстояния (по изображениям, текстам и знаменитостям)
-    combined_distances = (distances_one_peace + distances_ocr + distances_descriptions) / 3
+    combined_distances = (distances_one_peace + distances_descriptions) / 2
     indices = np.argsort(combined_distances)[:10]
 
     # Находим лучшее изображение
@@ -358,7 +358,7 @@ async def search_images(query: QueryRequest):
     # Логирование только для лучшего изображения
     logger.info(f"Лучшее изображение: {best_image_name}")
     logger.info(f"  Балл похожести по ONE-PEACE: {1 - distances_one_peace[best_image_index]}")
-    logger.info(f"  Балл похожести по тексту OCR: {1 - distances_ocr[best_image_index]}")
+    # logger.info(f"  Балл похожести по тексту OCR: {1 - distances_ocr[best_image_index]}")
     logger.info(f"  Балл похожести по текстовому описанию: {1 - distances_descriptions[best_image_index]}")
     logger.info(f"  Нормированная BM25 оценка по OCR: {normalized_bm25_scores_ocr[best_image_index]}")
     logger.info(f"  Ненормированная BM25 оценка по OCR: {bm25_scores_ocr[best_image_index]}")
@@ -370,7 +370,7 @@ async def search_images(query: QueryRequest):
     results = [{"image_name": image_names[i],
                 "combined_similarity": 1 - combined_distances[i],
                 "one_peace_similarity": 1 - distances_one_peace[i],
-                "ocr_similarity": 1 - distances_ocr[i],
+                "ocr_similarity": 0.0,
                 "textual_description_similarity": 1 - distances_descriptions[i],
                 "bm25_ocr_similarity": bm25_scores_ocr[i],
                 "normalized_bm25_ocr_similarity": normalized_bm25_scores_ocr[i],
