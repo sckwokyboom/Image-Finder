@@ -98,7 +98,7 @@ async def handle_unsupported_content(message: types.Message):
 async def send_welcome(message: types.Message):
     logger.info(f"Пользователь {message.from_user.id} отправил команду /start")
     await message.answer(
-        "Привет! Отправь текстовый запрос на русском или английском для поиска по внутренней базе фотографий или отправь изображение для добавления его во внутреннюю базу данных бота (это изображение станет общедоступным для всех пользователей бота).")
+        "Привет! Отправь текстовый запрос на русском или английском для поиска по внутренней базе фотографий или отправь изображение для добавления его во внутреннюю базу данных бота (это изображение станет общедоступным для всех пользователей бота) с опциональным текстовым описанием.")
 
 
 # Ограничение частоты запросов
@@ -195,7 +195,7 @@ async def handle_text(message: types.Message):
                                     input_file = types.FSInputFile(image_path)
                                     media_group.append(InputMediaPhoto(
                                         media=input_file,
-                                        caption=f"*Общая оценка сходства с текстовым запросом: {combined_similarity:.4f}*\n"
+                                        caption=f"Общая оценка сходства с текстовым запросом: {combined_similarity:.4f}\n"
                                                 f"Смысловое сходство: {one_peace_similarity:.4f}\n"
                                                 f"Сходство с распознанным на изображении текстом: {ocr_similarity:.4f}\n"
                                                 f"Сходство с текстовым описанием изображения: {textual_description_similarity:.4f}\n"
