@@ -188,7 +188,7 @@ async def handle_text(message: types.Message):
                             normalized_bm25_textual_description_similarity = result[
                                 'normalized_bm25_textual_description_similarity']
 
-                            image_path = os.path.join("/home/meno/image_rag/Image-RAG/resources/val2017/", image_name)
+                            image_path = os.path.join("/home/meno/image_rag/Image-RAG/resources/demo_dataset/", image_name)
                             logger.info(f"Проверка существования файла: {image_path}")
                             if os.path.exists(image_path):
                                 try:

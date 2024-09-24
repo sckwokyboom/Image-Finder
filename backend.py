@@ -18,7 +18,7 @@ from typing import Optional
 from rank_bm25 import BM25Okapi
 import nltk
 
-IMAGE_DIR = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/train2017")
+IMAGE_DIR = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/demo_dataset")
 DB_PATH = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/demo_really_small_images_metadata.db")
 ONE_PEACE_GITHUB_REPO_DIR_PATH = 'ONE-PEACE/'
 ONE_PEACE_MODEL_PATH = '/home/meno/models/one-peace.pt'
