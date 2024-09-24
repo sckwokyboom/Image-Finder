@@ -351,7 +351,7 @@ async def search_images(query: QueryRequest):
         normalized_bm25_scores_descriptions = normalize_bm25_scores(bm25_scores_descriptions)
 
     # Комбинируем расстояния (по изображениям, текстам и знаменитостям)
-    combined_distances = (distances_one_peace + distances_descriptions) / 2
+    combined_distances = (distances_one_peace * 0.7) + (distances_descriptions * 0.3)
     indices = np.argsort(combined_distances)[:10]
 
     # Находим лучшее изображение
@@ -373,7 +373,7 @@ async def search_images(query: QueryRequest):
     results = [{"image_name": image_names[i],
                 "combined_similarity": 1 - combined_distances[i],
                 "one_peace_similarity": 1 - distances_one_peace[i],
-                "ocr_similarity": 0.0,
+                "ocr_similarity": 1 - distances_ocr[i],
                 "textual_description_similarity": 1 - distances_descriptions[i],
                 "bm25_ocr_similarity": bm25_scores_ocr[i],
                 "normalized_bm25_ocr_similarity": normalized_bm25_scores_ocr[i],
@@ -387,4 +387,4 @@ async def search_images(query: QueryRequest):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8006)
+    uvicorn.run(app, host="0.0.0.0", port=8007)
