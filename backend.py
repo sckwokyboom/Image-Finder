@@ -347,7 +347,7 @@ async def search_images(query: QueryRequest):
     logger.info(
         f"  Нормированная BM25 оценка по текстовым описаниям: {normalized_bm25_scores_descriptions[best_image_index]}")
     logger.info(f"  Ненормированная BM25 оценка по текстовым описаниям: {bm25_scores_descriptions[best_image_index]}")
-
+    logger.info(f"Текстовое описание: {ocr_texts[best_image_index]}")
     # Формируем результаты поиска
     results = [{"image_name": image_names[i],
                 "combined_similarity": 1 - combined_distances[i],
