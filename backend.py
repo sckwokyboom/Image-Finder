@@ -128,20 +128,20 @@ def save_embedding(db_path, image_name, embedding, recognized_text, text_descrip
     conn.close()
 
 
-# def get_image_embeddings(db_path):
-#     """Получение всех эмбеддингов изображений и текстов OCR из базы данных."""
-#     conn = sqlite3.connect(db_path)
-#     cursor = conn.cursor()
-#     cursor.execute('SELECT image_name, op_embedding, recognized_text, recognized_text_embedding FROM image_embeddings')
-#     results = cursor.fetchall()
-#     conn.close()
-#
-#     image_names = [row[0] for row in results]
-#     embeddings = [np.frombuffer(row[1], dtype=np.float32) for row in results]
-#     ocr_texts = [row[2] for row in results]
-#     ocr_embeddings = [np.frombuffer(row[3], dtype=np.float32) for row in results]
-#
-#     return image_names, np.vstack(embeddings), ocr_texts, ocr_embeddings
+def get_image_embeddings(db_path):
+    """Получение всех эмбеддингов изображений и текстов OCR из базы данных."""
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('SELECT image_name, op_embedding, recognized_text, recognized_text_embedding FROM image_embeddings')
+    results = cursor.fetchall()
+    conn.close()
+
+    image_names = [row[0] for row in results]
+    embeddings = [np.frombuffer(row[1], dtype=np.float32) for row in results]
+    ocr_texts = [row[2] for row in results]
+    ocr_embeddings = [np.frombuffer(row[3], dtype=np.float32) for row in results]
+
+    return image_names, np.vstack(embeddings), ocr_texts, ocr_embeddings
 
 
 def vectorize_image(model, transform, image: Image.Image, device):
@@ -189,7 +189,7 @@ def get_image_embeddings(db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute(
-        'SELECT image_name, op_embedding, recognized_text, recognized_text_embedding, text_description_embedding, text_description FROM image_embeddings')
+        'SELECT image_name, op_embedding, recognized_text, text_description_embedding, text_description FROM image_embeddings')
     results = cursor.fetchall()
     conn.close()
 
@@ -197,12 +197,11 @@ def get_image_embeddings(db_path):
     embeddings = [np.frombuffer(row[1], dtype=np.float32) for row in results]
     # TODO: очень плохо с индексами тут работать, явно неправильно
     ocr_texts = [row[2] for row in results]
-    ocr_embeddings = [np.frombuffer(row[3], dtype=np.float32) if row[3] is not None else None for row in results]
-    text_description_embeddings = [np.frombuffer(row[4], dtype=np.float32) if row[4] is not None else None for row in
+    text_description_embeddings = [np.frombuffer(row[3], dtype=np.float32) if row[3] is not None else None for row in
                                    results]
-    text_descriptions = [row[5] for row in results]
+    text_descriptions = [row[4] for row in results]
 
-    return image_names, np.vstack(embeddings), ocr_texts, ocr_embeddings, text_description_embeddings, text_descriptions
+    return image_names, np.vstack(embeddings), ocr_texts, text_description_embeddings, text_descriptions
 
 
 @app.post("/upload-image/")
@@ -272,6 +271,10 @@ async def search_images(query: QueryRequest):
     distances_one_peace = cdist(text_features, image_embeddings, metric='cosine').flatten()
 
     # Рассчитываем расстояния между запросом и текстами OCR
+    ocr_embeddings = model_sbert.encode(ocr_texts)
+    query_text_embedding = np.array(query_text_embedding).reshape(1, -1)
+    ocr_embeddings = np.array(ocr_embeddings)
+    distances_ocr = cdist(query_text_embedding, ocr_embeddings, metric='cosine').flatten()
     # ocr_embeddings = model_sbert.encode(ocr_texts)
     # query_text_embedding = np.array(query_text_embedding).reshape(1, -1)
     # ocr_embeddings = np.array(ocr_embeddings)
@@ -358,7 +361,7 @@ async def search_images(query: QueryRequest):
     # Логирование только для лучшего изображения
     logger.info(f"Лучшее изображение: {best_image_name}")
     logger.info(f"  Балл похожести по ONE-PEACE: {1 - distances_one_peace[best_image_index]}")
-    # logger.info(f"  Балл похожести по тексту OCR: {1 - distances_ocr[best_image_index]}")
+    logger.info(f"  Балл похожести по тексту OCR: {1 - distances_ocr[best_image_index]}")
     logger.info(f"  Балл похожести по текстовому описанию: {1 - distances_descriptions[best_image_index]}")
     logger.info(f"  Нормированная BM25 оценка по OCR: {normalized_bm25_scores_ocr[best_image_index]}")
     logger.info(f"  Ненормированная BM25 оценка по OCR: {bm25_scores_ocr[best_image_index]}")
