@@ -189,7 +189,7 @@ def get_image_embeddings(db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute(
-        'SELECT image_name, op_embedding, recognized_text, text_description_embedding, text_description FROM image_embeddings')
+        'SELECT image_name, op_embedding, recognized_text, text_description_embedding, text_description, ocr_embedding FROM image_embeddings')
     results = cursor.fetchall()
     conn.close()
 
@@ -200,8 +200,10 @@ def get_image_embeddings(db_path):
     text_description_embeddings = [np.frombuffer(row[3], dtype=np.float32) if row[3] is not None else None for row in
                                    results]
     text_descriptions = [row[4] for row in results]
+    ocr_embeddings = [np.frombuffer(row[5], dtype=np.float32) if row[5] is not None else None for row in
+                      results]
 
-    return image_names, np.vstack(embeddings), ocr_texts, text_description_embeddings, text_descriptions
+    return image_names, np.vstack(embeddings), ocr_texts, text_description_embeddings, text_descriptions, ocr_embeddings
 
 
 @app.post("/upload-image/")
@@ -264,43 +266,43 @@ async def search_images(query: QueryRequest):
     query_text_embedding = model_sbert.encode(query.query)
 
     # Получаем эмбеддинги изображений, OCR текстов и имен знаменитостей
-    image_names, image_embeddings, ocr_texts, text_description_embeddings, text_descriptions = get_image_embeddings(
+    image_names, image_embeddings, ocr_texts, text_description_embeddings, text_descriptions, ocr_embeddings = get_image_embeddings(
         DB_PATH)
 
     # Рассчитываем расстояния между запросом и эмбеддингами изображений
     distances_one_peace = cdist(text_features, image_embeddings, metric='cosine').flatten()
 
     # Рассчитываем расстояния между запросом и текстами OCR
-    ocr_embeddings = model_sbert.encode(ocr_texts)
-    query_text_embedding = np.array(query_text_embedding).reshape(1, -1)
-    ocr_embeddings = np.array(ocr_embeddings)
-    distances_ocr = cdist(query_text_embedding, ocr_embeddings, metric='cosine').flatten()
     # ocr_embeddings = model_sbert.encode(ocr_texts)
     # query_text_embedding = np.array(query_text_embedding).reshape(1, -1)
     # ocr_embeddings = np.array(ocr_embeddings)
     # distances_ocr = cdist(query_text_embedding, ocr_embeddings, metric='cosine').flatten()
-    # distances_ocr = np.ones(len(image_names))
+    # ocr_embeddings = model_sbert.encode(ocr_texts)
+    # query_text_embedding = np.array(query_text_embedding).reshape(1, -1)
+    # ocr_embeddings = np.array(ocr_embeddings)
+    # distances_ocr = cdist(query_text_embedding, ocr_embeddings, metric='cosine').flatten()
+    distances_ocr = np.ones(len(image_names))
     # if ocr_embeddings:
-    #     distances_ocr = cdist(query_text_embedding, ocr_embeddings, metric='cosine').flatten()
+    # distances_ocr = cdist(query_text_embedding, ocr_embeddings, metric='cosine').flatten()
     distances_descriptions = np.ones(len(image_names))
 
-    # if ocr_embeddings:
-    #     # Подготавливаем текстовые эмбеддинги только для тех изображений, у которых есть описание
-    #     valid_ocr_indices = [i for i, emb in enumerate(ocr_embeddings) if emb is not None]
-    #     valid_ocr_embeddings = [emb for emb in ocr_embeddings if emb is not None]
-    #     if valid_ocr_embeddings:
-    #         valid_ocr_embeddings = np.array(valid_ocr_embeddings)
-    #         if len(valid_ocr_embeddings.shape) == 1:
-    #             valid_ocr_embeddings = valid_ocr_embeddings.reshape(-1, query_text_embedding.shape[1])
-    #         valid_distances_ocr = cdist(query_text_embedding, valid_ocr_embeddings,
-    #                                     metric='cosine').flatten()
-    #
-    #         for idx, valid_idx in enumerate(valid_ocr_indices):
-    #             distances_ocr[valid_idx] = valid_distances_ocr[idx]
-    #     else:
-    #         logger.warning("Все распознанные тексты равны None (пустые).")
-    # else:
-    #     logger.warning("Не было найдено распознанных текстов.")
+    if ocr_embeddings:
+        # Подготавливаем текстовые эмбеддинги только для тех изображений, у которых есть описание
+        valid_ocr_indices = [i for i, emb in enumerate(ocr_embeddings) if emb is not None]
+        valid_ocr_embeddings = [emb for emb in ocr_embeddings if emb is not None]
+        if valid_ocr_embeddings:
+            valid_ocr_embeddings = np.array(valid_ocr_embeddings)
+            if len(valid_ocr_embeddings.shape) == 1:
+                valid_ocr_embeddings = valid_ocr_embeddings.reshape(-1, query_text_embedding.shape[1])
+            valid_distances_ocr = cdist(query_text_embedding, valid_ocr_embeddings,
+                                        metric='cosine').flatten()
+
+            for idx, valid_idx in enumerate(valid_ocr_indices):
+                distances_ocr[valid_idx] = valid_distances_ocr[idx]
+        else:
+            logger.warning("Все распознанные тексты равны None (пустые).")
+    else:
+        logger.warning("Не было найдено распознанных текстов.")
 
     if text_description_embeddings:
         # Подготавливаем текстовые эмбеддинги только для тех изображений, у которых есть описание
