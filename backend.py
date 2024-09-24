@@ -307,15 +307,23 @@ async def search_images(query: QueryRequest):
     tokenized_query = nltk.word_tokenize(query.query.lower())
     # --- BM25 по OCR ---
     tokenized_ocr_texts = [nltk.word_tokenize(ocr.lower()) if ocr else [] for ocr in ocr_texts]
-    bm25_ocr = BM25Okapi(tokenized_ocr_texts)
-    bm25_scores_ocr = bm25_ocr.get_scores(tokenized_query)
-    normalized_bm25_scores_ocr = normalize_bm25_scores(bm25_scores_ocr)
+    if len(tokenized_ocr_texts) == 0 or all(len(ocr) == 0 for ocr in tokenized_ocr_texts):
+        bm25_scores_ocr = [0] * len(image_names)
+        normalized_bm25_scores_ocr = [0] * len(image_names)
+    else:
+        bm25_ocr = BM25Okapi(tokenized_ocr_texts)
+        bm25_scores_ocr = bm25_ocr.get_scores(tokenized_query)
+        normalized_bm25_scores_ocr = normalize_bm25_scores(bm25_scores_ocr)
 
     # --- BM25 по текстовым описаниям ---
     tokenized_descriptions = [nltk.word_tokenize(desc.lower()) if desc else [] for desc in text_descriptions]
-    bm25_descriptions = BM25Okapi(tokenized_descriptions)
-    bm25_scores_descriptions = bm25_descriptions.get_scores(tokenized_query)
-    normalized_bm25_scores_descriptions = normalize_bm25_scores(bm25_scores_descriptions)
+    if len(tokenized_descriptions) or all(len(desc) == 0 for desc in tokenized_descriptions)== 0:
+        bm25_scores_descriptions = [0] * len(image_names)
+        normalized_bm25_scores_descriptions = [0] * len(image_names)
+    else:
+        bm25_descriptions = BM25Okapi(tokenized_descriptions)
+        bm25_scores_descriptions = bm25_descriptions.get_scores(tokenized_query)
+        normalized_bm25_scores_descriptions = normalize_bm25_scores(bm25_scores_descriptions)
 
     # Комбинируем расстояния (по изображениям, текстам и знаменитостям)
     combined_distances = (distances_one_peace + distances_ocr + distances_descriptions) / 3
