@@ -197,8 +197,8 @@ def get_image_embeddings(db_path):
     embeddings = [np.frombuffer(row[1], dtype=np.float32) for row in results]
     # TODO: очень плохо с индексами тут работать, явно неправильно
     ocr_texts = [row[2] for row in results]
-    ocr_embeddings = [np.frombuffer(row[3], dtype=np.float32) if row is not None else None for row in results]
-    text_description_embeddings = [np.frombuffer(row[4], dtype=np.float32) if row[3] is not None else None for row in
+    ocr_embeddings = [np.frombuffer(row[3], dtype=np.float32) if row[3] is not None else None for row in results]
+    text_description_embeddings = [np.frombuffer(row[4], dtype=np.float32) if row[4] is not None else None for row in
                                    results]
     text_descriptions = [row[5] for row in results]
 
