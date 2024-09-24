@@ -178,16 +178,31 @@ async def handle_text(message: types.Message):
 
                         for result in results[:10]:
                             image_name = result['image_name']
-                            similarity = result['similarity']
-                            image_path = os.path.join("/home/meno/image_rag/Image-RAG/resources/val2017/", image_name)
+                            combined_similarity = result['combined_similarity']
+                            one_peace_similarity = result['one_peace_similarity']
+                            ocr_similarity = result['ocr_similarity']
+                            textual_description_similarity = result['textual_description_similarity']
+                            bm25_ocr_similarity = result['bm25_ocr_similarity']
+                            normalized_bm25_ocr_similarity = result['normalized_bm25_ocr_similarity']
+                            bm25_textual_description_similarity = result['bm25_textual_description_similarity']
+                            normalized_bm25_textual_description_similarity = result[
+                                'normalized_bm25_textual_description_similarity']
 
+                            image_path = os.path.join("/home/meno/image_rag/Image-RAG/resources/val2017/", image_name)
                             logger.info(f"Проверка существования файла: {image_path}")
                             if os.path.exists(image_path):
                                 try:
                                     input_file = types.FSInputFile(image_path)
                                     media_group.append(InputMediaPhoto(
                                         media=input_file,
-                                        caption=f"Похожесть: {similarity:.4f}"
+                                        caption=f"*Общая оценка сходства с текстовым запросом: {combined_similarity:.4f}*\n"
+                                                f"Смысловое сходство: {one_peace_similarity:.4f}\n"
+                                                f"Сходство с распознанным на изображении текстом: {ocr_similarity:.4f}\n"
+                                                f"Сходство с текстовым описанием изображения: {textual_description_similarity:.4f}\n"
+                                                f"Ненормированная оценка сходства распознанного текста по BM25: {bm25_ocr_similarity:.4f}\n"
+                                                f"Нормированная оценка сходства распознанного текста по BM25: {normalized_bm25_ocr_similarity:.4f}\n"
+                                                f"Ненормированная оценка сходства текстового описания по BM25: {bm25_textual_description_similarity:.4f}\n"
+                                                f"Нормированная оценка сходства текстового описания по BM25: {normalized_bm25_textual_description_similarity:.4f}\n"
                                     ))
                                 except Exception as e:
                                     logger.error(f"Ошибка при создании InputMediaPhoto для {image_path}: {e}")

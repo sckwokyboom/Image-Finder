@@ -342,11 +342,21 @@ async def search_images(query: QueryRequest):
     logger.info(f"  Балл похожести по текстовому описанию: {1 - distances_descriptions[best_image_index]}")
     logger.info(f"  Нормированная BM25 оценка по OCR: {normalized_bm25_scores_ocr[best_image_index]}")
     logger.info(f"  Ненормированная BM25 оценка по OCR: {bm25_scores_ocr[best_image_index]}")
-    logger.info(f"  Нормированная BM25 оценка по текстовым описаниям: {normalized_bm25_scores_descriptions[best_image_index]}")
+    logger.info(
+        f"  Нормированная BM25 оценка по текстовым описаниям: {normalized_bm25_scores_descriptions[best_image_index]}")
     logger.info(f"  Ненормированная BM25 оценка по текстовым описаниям: {bm25_scores_descriptions[best_image_index]}")
 
     # Формируем результаты поиска
-    results = [{"image_name": image_names[i], "similarity": 1 - combined_distances[i]} for i in indices]
+    results = [{"image_name": image_names[i],
+                "combined_similarity": 1 - combined_distances[i],
+                "one_peace_similarity": 1 - distances_one_peace[best_image_index],
+                "ocr_similarity": 1 - distances_ocr[best_image_index],
+                "textual_description_similarity": 1 - distances_descriptions[best_image_index],
+                "bm25_ocr_similarity": bm25_scores_ocr[best_image_index],
+                "normalized_bm25_ocr_similarity": normalized_bm25_scores_ocr[best_image_index],
+                "bm25_textual_description_similarity": bm25_scores_descriptions[best_image_index],
+                "normalized_bm25_textual_description_similarity": normalized_bm25_scores_descriptions[best_image_index]
+                } for i in indices]
     logger.info(f"Поиск по запросу '{query.query}' завершен. Найдено {len(results)} результатов.")
     return JSONResponse(results)
 
