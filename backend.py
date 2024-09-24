@@ -264,7 +264,7 @@ async def search_images(query: QueryRequest):
     query_text_embedding = model_sbert.encode(query.query)
 
     # Получаем эмбеддинги изображений, OCR текстов и имен знаменитостей
-    image_names, image_embeddings, ocr_texts, ocr_embeddings, text_description_embeddings, text_descriptions = get_image_embeddings(
+    image_names, image_embeddings, ocr_texts, text_description_embeddings, text_descriptions = get_image_embeddings(
         DB_PATH)
 
     # Рассчитываем расстояния между запросом и эмбеддингами изображений
