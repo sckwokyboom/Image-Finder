@@ -189,7 +189,7 @@ def get_image_embeddings(db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute(
-        'SELECT image_name, op_embedding, recognized_text, text_description_embedding, text_description, ocr_embedding FROM image_embeddings')
+        'SELECT image_name, op_embedding, recognized_text, text_description_embedding, text_description, recognized_text_embedding FROM image_embeddings')
     results = cursor.fetchall()
     conn.close()
 
@@ -389,4 +389,4 @@ async def search_images(query: QueryRequest):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8007)
+    uvicorn.run(app, host="0.0.0.0", port=8006)
