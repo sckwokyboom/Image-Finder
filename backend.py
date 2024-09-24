@@ -128,19 +128,20 @@ def save_embedding(db_path, image_name, embedding, recognized_text, text_descrip
     conn.close()
 
 
-def get_image_embeddings(db_path):
-    """Получение всех эмбеддингов изображений и текстов OCR из базы данных."""
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute('SELECT image_name, op_embedding, recognized_text FROM image_embeddings')
-    results = cursor.fetchall()
-    conn.close()
-
-    image_names = [row[0] for row in results]
-    embeddings = [np.frombuffer(row[1], dtype=np.float32) for row in results]
-    ocr_texts = [row[2] for row in results]
-
-    return image_names, np.vstack(embeddings), ocr_texts
+# def get_image_embeddings(db_path):
+#     """Получение всех эмбеддингов изображений и текстов OCR из базы данных."""
+#     conn = sqlite3.connect(db_path)
+#     cursor = conn.cursor()
+#     cursor.execute('SELECT image_name, op_embedding, recognized_text, recognized_text_embedding FROM image_embeddings')
+#     results = cursor.fetchall()
+#     conn.close()
+#
+#     image_names = [row[0] for row in results]
+#     embeddings = [np.frombuffer(row[1], dtype=np.float32) for row in results]
+#     ocr_texts = [row[2] for row in results]
+#     ocr_embeddings = [np.frombuffer(row[3], dtype=np.float32) for row in results]
+#
+#     return image_names, np.vstack(embeddings), ocr_texts, ocr_embeddings
 
 
 def vectorize_image(model, transform, image: Image.Image, device):
@@ -188,7 +189,7 @@ def get_image_embeddings(db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute(
-        'SELECT image_name, op_embedding, recognized_text, text_description_embedding, text_description FROM image_embeddings')
+        'SELECT image_name, op_embedding, recognized_text, recognized_text_embedding, text_description_embedding, text_description FROM image_embeddings')
     results = cursor.fetchall()
     conn.close()
 
@@ -196,11 +197,12 @@ def get_image_embeddings(db_path):
     embeddings = [np.frombuffer(row[1], dtype=np.float32) for row in results]
     # TODO: очень плохо с индексами тут работать, явно неправильно
     ocr_texts = [row[2] for row in results]
-    text_description_embeddings = [np.frombuffer(row[3], dtype=np.float32) if row[3] is not None else None for row in
+    ocr_embeddings = [np.frombuffer(row[3], dtype=np.float32) for row in results]
+    text_description_embeddings = [np.frombuffer(row[4], dtype=np.float32) if row[3] is not None else None for row in
                                    results]
-    text_descriptions = [row[4] for row in results]
+    text_descriptions = [row[5] for row in results]
 
-    return image_names, np.vstack(embeddings), ocr_texts, text_description_embeddings, text_descriptions
+    return image_names, np.vstack(embeddings), ocr_texts, ocr_embeddings, text_description_embeddings, text_descriptions
 
 
 @app.post("/upload-image/")
@@ -263,18 +265,20 @@ async def search_images(query: QueryRequest):
     query_text_embedding = model_sbert.encode(query.query)
 
     # Получаем эмбеддинги изображений, OCR текстов и имен знаменитостей
-    image_names, image_embeddings, ocr_texts, text_description_embeddings, text_descriptions = get_image_embeddings(
+    image_names, image_embeddings, ocr_texts, ocr_embeddings, text_description_embeddings, text_descriptions = get_image_embeddings(
         DB_PATH)
 
     # Рассчитываем расстояния между запросом и эмбеддингами изображений
     distances_one_peace = cdist(text_features, image_embeddings, metric='cosine').flatten()
 
     # Рассчитываем расстояния между запросом и текстами OCR
-    ocr_embeddings = model_sbert.encode(ocr_texts)
-    query_text_embedding = np.array(query_text_embedding).reshape(1, -1)
-    ocr_embeddings = np.array(ocr_embeddings)
-    distances_ocr = cdist(query_text_embedding, ocr_embeddings, metric='cosine').flatten()
-
+    # ocr_embeddings = model_sbert.encode(ocr_texts)
+    # query_text_embedding = np.array(query_text_embedding).reshape(1, -1)
+    # ocr_embeddings = np.array(ocr_embeddings)
+    # distances_ocr = cdist(query_text_embedding, ocr_embeddings, metric='cosine').flatten()
+    distances_ocr = np.ones(len(image_names))
+    if ocr_embeddings:
+        distances_ocr = cdist(query_text_embedding, ocr_embeddings, metric='cosine').flatten()
     distances_descriptions = np.ones(len(image_names))
 
     if text_description_embeddings:
@@ -317,7 +321,7 @@ async def search_images(query: QueryRequest):
 
     # --- BM25 по текстовым описаниям ---
     tokenized_descriptions = [nltk.word_tokenize(desc.lower()) if desc else [] for desc in text_descriptions]
-    if len(tokenized_descriptions) or all(len(desc) == 0 for desc in tokenized_descriptions)== 0:
+    if len(tokenized_descriptions) == 0 or all(len(desc) == 0 for desc in tokenized_descriptions) == 0:
         bm25_scores_descriptions = [0] * len(image_names)
         normalized_bm25_scores_descriptions = [0] * len(image_names)
     else:
