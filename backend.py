@@ -306,26 +306,16 @@ async def search_images(query: QueryRequest):
 
     tokenized_query = nltk.word_tokenize(query.query.lower())
     # --- BM25 по OCR ---
-    tokenized_ocr_texts = [ocr.split() if ocr else [] for ocr in ocr_texts]
+    tokenized_ocr_texts = [nltk.word_tokenize(ocr.lower()) if ocr else [] for ocr in ocr_texts]
     bm25_ocr = BM25Okapi(tokenized_ocr_texts)
     bm25_scores_ocr = bm25_ocr.get_scores(tokenized_query)
     normalized_bm25_scores_ocr = normalize_bm25_scores(bm25_scores_ocr)
-    # if np.max(bm25_scores_ocr) > 0:
-    #     bm25_scores_ocr = (bm25_scores_ocr - np.min(bm25_scores_ocr)) / (
-    #             np.max(bm25_scores_ocr) - np.min(bm25_scores_ocr))
-    # else:
-    #     bm25_scores_ocr = np.zeros(len(image_names))
 
     # --- BM25 по текстовым описаниям ---
-    tokenized_descriptions = [desc.split() if desc else [] for desc in text_descriptions]
+    tokenized_descriptions = [nltk.word_tokenize(desc.lower()) if desc else [] for desc in text_descriptions]
     bm25_descriptions = BM25Okapi(tokenized_descriptions)
     bm25_scores_descriptions = bm25_descriptions.get_scores(tokenized_query)
     normalized_bm25_scores_descriptions = normalize_bm25_scores(bm25_scores_descriptions)
-    # if np.max(bm25_scores_descriptions) > 0:
-    #     bm25_scores_descriptions = (bm25_scores_descriptions - np.min(bm25_scores_descriptions)) / (
-    #             np.max(bm25_scores_descriptions) - np.min(bm25_scores_descriptions))
-    # else:
-    #     bm25_scores_descriptions = np.zeros(len(image_names))
 
     # Комбинируем расстояния (по изображениям, текстам и знаменитостям)
     combined_distances = (distances_one_peace + distances_ocr + distances_descriptions) / 3
@@ -349,13 +339,13 @@ async def search_images(query: QueryRequest):
     # Формируем результаты поиска
     results = [{"image_name": image_names[i],
                 "combined_similarity": 1 - combined_distances[i],
-                "one_peace_similarity": 1 - distances_one_peace[best_image_index],
-                "ocr_similarity": 1 - distances_ocr[best_image_index],
-                "textual_description_similarity": 1 - distances_descriptions[best_image_index],
-                "bm25_ocr_similarity": bm25_scores_ocr[best_image_index],
-                "normalized_bm25_ocr_similarity": normalized_bm25_scores_ocr[best_image_index],
-                "bm25_textual_description_similarity": bm25_scores_descriptions[best_image_index],
-                "normalized_bm25_textual_description_similarity": normalized_bm25_scores_descriptions[best_image_index]
+                "one_peace_similarity": 1 - distances_one_peace[i],
+                "ocr_similarity": 1 - distances_ocr[i],
+                "textual_description_similarity": 1 - distances_descriptions[i],
+                "bm25_ocr_similarity": bm25_scores_ocr[i],
+                "normalized_bm25_ocr_similarity": normalized_bm25_scores_ocr[i],
+                "bm25_textual_description_similarity": bm25_scores_descriptions[i],
+                "normalized_bm25_textual_description_similarity": normalized_bm25_scores_descriptions[i]
                 } for i in indices]
     logger.info(f"Поиск по запросу '{query.query}' завершен. Найдено {len(results)} результатов.")
     return JSONResponse(results)
