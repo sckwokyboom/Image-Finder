@@ -15,20 +15,14 @@ from torchvision import transforms
 one_peace_demo_logger = logging.getLogger(__name__)
 
 
-def vectorize_image(image_path, model, transform, device):
-    image = Image.open(image_path).convert("RGB")
-    image = transform(image).unsqueeze(0).to(device)
+def vectorize_image(image, model, transform, device):
+    transformed_image = transform(image).unsqueeze(0).to(device)
     with torch.no_grad():
-        embedding = model.extract_image_features(image)
+        embedding = model.extract_image_features(transformed_image)
     return embedding.cpu().numpy()
 
 
-def extract_text_embedding(image_path, sbert_model, device):
-    model_storage_dir = "/userspace/kmy/image_rag/models/easy_ocr"
-    reader = easyocr.Reader(['en', 'ru'], model_storage_directory=model_storage_dir,
-                            user_network_directory=model_storage_dir)
-
-    image = Image.open(image_path).convert("RGB")
+def extract_text_embedding(image, sbert_model, reader, device):
     result = reader.readtext(np.array(image), detail=0)
     text = " ".join([item for item in result])
 
@@ -156,6 +150,10 @@ def main():
 
     sbert_model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2').to(device)
 
+    model_storage_dir = "/userspace/kmy/image_rag/models/easy_ocr"
+    reader = easyocr.Reader(['en', 'ru'], model_storage_directory=model_storage_dir,
+                            user_network_directory=model_storage_dir)
+
     transform = transforms.Compose([
         transforms.Resize((256, 256)),
         transforms.ToTensor(),
@@ -167,7 +165,8 @@ def main():
     image_dir_files = os.listdir(args.image_dir)
     if image_dir_files:
         first_image_path = os.path.join(args.image_dir, image_dir_files[0])
-        first_embedding = vectorize_image(first_image_path, model, transform, device)
+        first_image = Image.open(first_image_path).convert("RGB")
+        first_embedding = vectorize_image(first_image, model, transform, device)
         embedding_dim = first_embedding.shape[1]
 
         # image_annoy_index = AnnoyIndex(embedding_dim, 'angular')
@@ -177,16 +176,20 @@ def main():
         sys.exit(1)
 
     for idx, image_name in enumerate(image_dir_files):
-        image_path = os.path.join(args.image_dir, image_name)
-        if os.path.isfile(image_path):
-            image_embedding = vectorize_image(image_path, model, transform, device)
-            text, text_embedding = extract_text_embedding(image_path, sbert_model, device)
+        if idx % 100 == 0:
+            if idx % 5000:
+                one_peace_demo_logger.info(f'{idx / 100} images processed.')
+            image_path = os.path.join(args.image_dir, image_name)
+            if os.path.isfile(image_path):
+                image = Image.open(image_path).convert("RGB")
+                image_embedding = vectorize_image(image, model, transform, device)
+                text, text_embedding = extract_text_embedding(image, sbert_model, reader, device)
 
-            save_embeddings_to_sqlite(args.db_path, image_name, image_embedding, text, text_embedding)
-            # add_to_annoy_index(image_annoy_index, image_embedding[0], idx)
+                save_embeddings_to_sqlite(args.db_path, image_name, image_embedding, text, text_embedding)
+                # add_to_annoy_index(image_annoy_index, image_embedding[0], idx)
 
-            # if text_embedding is not None:
-            #     add_to_annoy_index(text_annoy_index, text_embedding[0], idx)
+                # if text_embedding is not None:
+                #     add_to_annoy_index(text_annoy_index, text_embedding[0], idx)
 
     # save_annoy_index(image_annoy_index, args.image_annoy_index_path)
     # save_annoy_index(text_annoy_index, args.text_annoy_index_path)
