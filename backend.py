@@ -303,24 +303,24 @@ async def search_images(query: QueryRequest):
     # else:
     #     logger.warning("Не было найдено распознанных текстов.")
 
-    if text_description_embeddings:
-        # Подготавливаем текстовые эмбеддинги только для тех изображений, у которых есть описание
-        valid_description_indices = [i for i, emb in enumerate(text_description_embeddings) if emb is not None]
-        valid_description_embeddings = [emb for emb in text_description_embeddings if emb is not None]
-        if valid_description_embeddings:
-            valid_description_embeddings = np.array(valid_description_embeddings)
-            if len(valid_description_embeddings.shape) == 1:
-                valid_description_embeddings = valid_description_embeddings.reshape(-1, query_text_embedding.shape[1])
-            valid_distances_descriptions = cdist(query_text_embedding, valid_description_embeddings,
-                                                 metric='cosine').flatten()
-
-            # Заполняем расстояния для тех изображений, у которых есть описание
-            for idx, valid_idx in enumerate(valid_description_indices):
-                distances_descriptions[valid_idx] = valid_distances_descriptions[idx]
-        else:
-            logger.warning("Все текстовые описания равны None (пустые).")
-    else:
-        logger.warning("Не было найдено опциональных текстовых описаний.")
+    # if text_description_embeddings:
+    #     # Подготавливаем текстовые эмбеддинги только для тех изображений, у которых есть описание
+    #     valid_description_indices = [i for i, emb in enumerate(text_description_embeddings) if emb is not None]
+    #     valid_description_embeddings = [emb for emb in text_description_embeddings if emb is not None]
+    #     if valid_description_embeddings:
+    #         valid_description_embeddings = np.array(valid_description_embeddings)
+    #         if len(valid_description_embeddings.shape) == 1:
+    #             valid_description_embeddings = valid_description_embeddings.reshape(-1, query_text_embedding.shape[1])
+    #         valid_distances_descriptions = cdist(query_text_embedding, valid_description_embeddings,
+    #                                              metric='cosine').flatten()
+    #
+    #         # Заполняем расстояния для тех изображений, у которых есть описание
+    #         for idx, valid_idx in enumerate(valid_description_indices):
+    #             distances_descriptions[valid_idx] = valid_distances_descriptions[idx]
+    #     else:
+    #         logger.warning("Все текстовые описания равны None (пустые).")
+    # else:
+    #     logger.warning("Не было найдено опциональных текстовых описаний.")
 
     def normalize_bm25_scores(scores):
         """Нормализуем баллы BM25 через логарифмическую шкалу."""
