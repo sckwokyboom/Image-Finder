@@ -73,10 +73,10 @@ def setup_models(model_dir=ONE_PEACE_GITHUB_REPO_DIR_PATH, model_name=ONE_PEACE_
 
     os.chdir(one_peace_dir)
     logger.info(f'Новая рабочая директория: {os.getcwd()}')
-    model = from_pretrained(model_name, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
+    model = from_pretrained(model_name, device=torch.device('cpu'))
     logger.info("ONE-PEACE был успешно загружен")
     logger.info("Загрузка модели SBERT")
-    model_sbert = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+    model_sbert = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2', device=torch.device('cpu'))
     logger.info("SBERT был успешно загружен")
     return model, model_sbert
 
@@ -216,8 +216,7 @@ async def upload_image(file: UploadFile = File(...), description: Optional[str] 
         logger.error(f"Ошибка при обработке изображения: {str(e)}")
         raise HTTPException(status_code=400, detail="Невозможно обработать изображение")
 
-    embedding = vectorize_image(model_op, transform_op, image,
-                                torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
+    embedding = vectorize_image(model_op, transform_op, image, torch.device('cpu'))
 
     # Использование pytesseract для распознавания текста
     ocr_result = pytesseract.image_to_string(image, lang='eng+rus')
