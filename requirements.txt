@@ -15,3 +15,5 @@ deepface
 tf-keras
 rank_bm25
 nltk
+locust
+prometheus_fastapi_instrumentator

@@ -17,6 +17,7 @@ from deep_translator import GoogleTranslator
 from typing import Optional
 from rank_bm25 import BM25Okapi
 import nltk
+from prometheus_fastapi_instrumentator import Instrumentator
 
 IMAGE_DIR = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/demo_dataset")
 DB_PATH = os.path.abspath("/home/meno/image_rag/Image-RAG/resources/demo_really_small_images_metadata.db")
@@ -24,6 +25,8 @@ ONE_PEACE_GITHUB_REPO_DIR_PATH = 'ONE-PEACE/'
 ONE_PEACE_MODEL_PATH = '/home/meno/models/one-peace.pt'
 
 app = FastAPI()
+
+Instrumentator().instrument(app).expose(app)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -161,6 +164,11 @@ def create_transforms():
     ])
 
 
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
+
 @app.on_event("startup")
 async def startup_event():
     """Инициализация при запуске сервера."""
@@ -284,43 +292,6 @@ async def search_images(query: QueryRequest):
     # if ocr_embeddings:
     # distances_ocr = cdist(query_text_embedding, ocr_embeddings, metric='cosine').flatten()
     distances_descriptions = np.ones(len(image_names))
-
-    # if ocr_embeddings:
-    #     # Подготавливаем текстовые эмбеддинги только для тех изображений, у которых есть описание
-    #     valid_ocr_indices = [i for i, emb in enumerate(ocr_embeddings) if emb is not None]
-    #     valid_ocr_embeddings = [emb for emb in ocr_embeddings if emb is not None]
-    #     if valid_ocr_embeddings:
-    #         valid_ocr_embeddings = np.array(valid_ocr_embeddings)
-    #         if len(valid_ocr_embeddings.shape) == 1:
-    #             valid_ocr_embeddings = valid_ocr_embeddings.reshape(-1, query_text_embedding.shape[1])
-    #         valid_distances_ocr = cdist(query_text_embedding, valid_ocr_embeddings,
-    #                                     metric='cosine').flatten()
-    #
-    #         for idx, valid_idx in enumerate(valid_ocr_indices):
-    #             distances_ocr[valid_idx] = valid_distances_ocr[idx]
-    #     else:
-    #         logger.warning("Все распознанные тексты равны None (пустые).")
-    # else:
-    #     logger.warning("Не было найдено распознанных текстов.")
-
-    # if text_description_embeddings:
-    #     # Подготавливаем текстовые эмбеддинги только для тех изображений, у которых есть описание
-    #     valid_description_indices = [i for i, emb in enumerate(text_description_embeddings) if emb is not None]
-    #     valid_description_embeddings = [emb for emb in text_description_embeddings if emb is not None]
-    #     if valid_description_embeddings:
-    #         valid_description_embeddings = np.array(valid_description_embeddings)
-    #         if len(valid_description_embeddings.shape) == 1:
-    #             valid_description_embeddings = valid_description_embeddings.reshape(-1, query_text_embedding.shape[1])
-    #         valid_distances_descriptions = cdist(query_text_embedding, valid_description_embeddings,
-    #                                              metric='cosine').flatten()
-    #
-    #         # Заполняем расстояния для тех изображений, у которых есть описание
-    #         for idx, valid_idx in enumerate(valid_description_indices):
-    #             distances_descriptions[valid_idx] = valid_distances_descriptions[idx]
-    #     else:
-    #         logger.warning("Все текстовые описания равны None (пустые).")
-    # else:
-    #     logger.warning("Не было найдено опциональных текстовых описаний.")
 
     def normalize_bm25_scores(scores):
         """Нормализуем баллы BM25 через логарифмическую шкалу."""
